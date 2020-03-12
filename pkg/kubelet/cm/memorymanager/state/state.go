@@ -16,6 +16,10 @@ limitations under the License.
 
 package state
 
+import (
+	"k8s.io/kubernetes/pkg/apis/core"
+)
+
 // MemoryTable contains memory information
 type MemoryTable struct {
 	TotalMemSize   uint64 `json:"total"`
@@ -25,27 +29,14 @@ type MemoryTable struct {
 	Free           uint64 `json:"free"`
 }
 
-// MemoryType defines the memory type, can be regaular memory, hugepages-2048Kb and hugepages-1048576Kb.
-// It can be extended with additional types in the future.
-type MemoryType string
-
-const (
-	// MemoryTypeRegular contains regular memory type.
-	MemoryTypeRegular = "memory"
-	// MemoryTypeHugepages2048Kb contains hugepages-2048Kb memory type.
-	MemoryTypeHugepages2048Kb = "hugepages-2048Kb"
-	// MemoryTypeHugepages1048576Kb contains hugepages-1048576Kb memory type.
-	MemoryTypeHugepages1048576Kb = "hugepages-1048576Kb"
-)
-
 // MemoryMap contains memory information for each NUMA node.
-type MemoryMap map[uint64]map[MemoryType]MemoryTable
+type MemoryMap map[uint64]map[core.ResourceName]MemoryTable
 
 // Clone returns a copy of MemoryMap
 func (mm MemoryMap) Clone() MemoryMap {
 	clone := make(MemoryMap)
 	for node, memory := range mm {
-		clone[node] = map[MemoryType]MemoryTable{}
+		clone[node] = map[core.ResourceName]MemoryTable{}
 		for memoryType, memoryTable := range memory {
 			clone[node][memoryType] = MemoryTable{
 				Allocatable:    memoryTable.Allocatable,
@@ -59,11 +50,11 @@ func (mm MemoryMap) Clone() MemoryMap {
 	return clone
 }
 
-// Block is data structure to represent certain amount of memory
+// Block is a data structure used to represent a certain amount of memory
 type Block struct {
-	Affinity uint64     `json:"affinity"`
-	Type     MemoryType `json:"type"`
-	Size     uint64     `json:"size"`
+	NUMAAffinity uint64            `json:"numaAffinity"`
+	Type         core.ResourceName `json:"type"`
+	Size         uint64            `json:"size"`
 }
 
 // ContainerMemoryAssignments stores memory assignments of containers
@@ -81,11 +72,11 @@ func (as ContainerMemoryAssignments) Clone() ContainerMemoryAssignments {
 	return clone
 }
 
-// Reader interface used to read current cpu/pod assignment state
+// Reader interface used to read current memory/pod assignment state
 type Reader interface {
-	// GetMachineState returns Memory Map that stored in State
+	// GetMachineState returns Memory Map stored in the State
 	GetMachineState() MemoryMap
-	// GetMemoryBlocks returns memory assignments of container
+	// GetMemoryBlocks returns memory assignments of a container
 	GetMemoryBlocks(podUID string, containerName string) []Block
 	// GetMemoryAssignments returns ContainerMemoryAssignments
 	GetMemoryAssignments() ContainerMemoryAssignments
@@ -94,11 +85,11 @@ type Reader interface {
 type writer interface {
 	// SetMachineState stores MemoryMap in State
 	SetMachineState(memoryMap MemoryMap)
-	// SetMemoryBlocks stores memory assignments of container
+	// SetMemoryBlocks stores memory assignments of a container
 	SetMemoryBlocks(podUID string, containerName string, blocks []Block)
-	// SetMemoryAssignments sets ContainerMemoryAssignments by passed parameter
+	// SetMemoryAssignments sets ContainerMemoryAssignments by using the passed parameter
 	SetMemoryAssignments(assignments ContainerMemoryAssignments)
-	// Delete deletes corresponding Block from ContainerMemoryAssignments
+	// Delete deletes corresponding Blocks from ContainerMemoryAssignments
 	Delete(podUID string, containerName string)
 	// ClearState clears machineState and ContainerMemoryAssignments
 	ClearState()

@@ -39,7 +39,7 @@ func NewMemoryState() State {
 	}
 }
 
-// GetMemoryState returns Memory Map that stored in State
+// GetMemoryState returns Memory Map stored in the State
 func (s *stateMemory) GetMachineState() MemoryMap {
 	s.RLock()
 	defer s.RUnlock()
@@ -47,7 +47,7 @@ func (s *stateMemory) GetMachineState() MemoryMap {
 	return s.machineState.Clone()
 }
 
-// GetMemoryBlocks returns memory assignments of container
+// GetMemoryBlocks returns memory assignments of a container
 func (s *stateMemory) GetMemoryBlocks(podUID string, containerName string) []Block {
 	s.RLock()
 	defer s.RUnlock()
@@ -88,7 +88,7 @@ func (s *stateMemory) SetMemoryBlocks(podUID string, containerName string, block
 	klog.Infof("[memorymanager] updated memory state (pod: %s, container: %s)", podUID, containerName)
 }
 
-// SetMemoryAssignments sets ContainerMemoryAssignments by passed parameter
+// SetMemoryAssignments sets ContainerMemoryAssignments by using the passed parameter
 func (s *stateMemory) SetMemoryAssignments(assignments ContainerMemoryAssignments) {
 	s.Lock()
 	defer s.Unlock()
@@ -96,7 +96,7 @@ func (s *stateMemory) SetMemoryAssignments(assignments ContainerMemoryAssignment
 	s.assignments = assignments
 }
 
-// Delete deletes corresponding Block from ContainerMemoryAssignments
+// Delete deletes corresponding Blocks from ContainerMemoryAssignments
 func (s *stateMemory) Delete(podUID string, containerName string) {
 	s.Lock()
 	defer s.Unlock()

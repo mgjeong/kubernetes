@@ -20,7 +20,9 @@ import (
 	"sync"
 	"time"
 
+	cadvisorapi "github.com/google/cadvisor/info/v1"
 	v1 "k8s.io/api/core/v1"
+	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/containermap"
 	"k8s.io/kubernetes/pkg/kubelet/cm/memorymanager/state"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
@@ -28,7 +30,10 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/status"
 )
 
-// Manager interface provides methods for Kubelet to manage pod cpus.
+// ActivePodsFunc is a function that returns a list of pods to reconcile.
+type ActivePodsFunc func() []*v1.Pod
+
+// Manager interface provides methods for Kubelet to manage pod memory.
 type Manager interface {
 	// Start is called during Kubelet initialization.
 	Start(activePods ActivePodsFunc, sourcesReady config.SourcesReady, podStatusProvider status.PodStatusProvider, containerRuntime runtimeService, initialContainers containermap.ContainerMap) error
@@ -39,11 +44,12 @@ type Manager interface {
 	AddContainer(p *v1.Pod, c *v1.Container, containerID string) error
 
 	// Allocate is called to pre-allocate memory resources during Pod admission.
+	// This must be called at some point prior to the AddContainer() call for a container, e.g. at pod admission time.
 	Allocate(pod *v1.Pod, container *v1.Container) error
 
 	// RemoveContainer is called after Kubelet decides to kill or delete a
 	// container. After this call, the memory manager stops trying to reconcile
-	// that container and any memory allocated to the container are freed.
+	// that container, and any memory allocated to the container are freed.
 	RemoveContainer(containerID string) error
 
 	// State returns a read-only interface to the internal memory manager state.
@@ -54,6 +60,11 @@ type Manager interface {
 	// and other resource controllers.
 	GetTopologyHints(*v1.Pod, *v1.Container) map[string][]topologymanager.TopologyHint
 }
+
+type sourcesReadyStub struct{}
+
+func (s *sourcesReadyStub) AddSource(source string) {}
+func (s *sourcesReadyStub) AllReady() bool          { return true }
 
 // UpdateContainerResources is used to update containers CPUSET configuration for cpuset.mems.
 type runtimeService interface {
@@ -100,27 +111,27 @@ var _ Manager = &manager{}
 
 // NewManager returns new instance of the memory manager
 func NewManager(reconcilePeriod time.Duration, machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, stateFileDirectory string, affinity topologymanager.Store) (Manager, error) {
-
+	return nil, nil
 }
 
 // Start starts the memory manager reconcile loop under the kubelet to keep state updated
 func (m *manager) Start(activePods ActivePodsFunc, sourcesReady config.SourcesReady, podStatusProvider status.PodStatusProvider, containerRuntime runtimeService, initialContainers containermap.ContainerMap) error {
-
+	return nil
 }
 
 // AddContainer saves the value of requested memory for the guranteed pod under the state and set memory affinity according to the topolgy manager
 func (m *manager) AddContainer(p *v1.Pod, c *v1.Container, containerID string) error {
-
+	return nil
 }
 
 // Allocate is called to pre-allocate memory resources during Pod admission.
 func (m *manager) Allocate(pod *v1.Pod, container *v1.Container) error {
-
+	return nil
 }
 
 // RemoveContainer removes the container from the state
 func (m *manager) RemoveContainer(containerID string) error {
-
+	return nil
 }
 
 // State returns the state of the manager
@@ -130,5 +141,5 @@ func (m *manager) State() state.Reader {
 
 // GetTopologyHints returns the topology hints for the topology manager
 func (m *manager) GetTopologyHints(pod *v1.Pod, container *v1.Container) map[string][]topologymanager.TopologyHint {
-
+	return nil
 }

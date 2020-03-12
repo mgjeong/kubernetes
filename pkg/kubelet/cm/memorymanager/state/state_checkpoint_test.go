@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 
+	"k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/containermap"
 	testutil "k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/state/testing"
@@ -68,8 +69,8 @@ func TestCheckpointStateRestore(t *testing.T) {
 			"Restore default cpu set",
 			`{
 				"machineState":{"0":{"memory":{"total":2048,"systemReserved":512,"allocatable":1024,"reserved":512,"free":1024}}},
-				"entries":{"pod":{"container1":[{"affinity":0,"type":"memory","size":512}]}},
-				"checksum": 2301963941
+				"entries":{"pod":{"container1":[{"numaAffinity":0,"type":"memory","size":512}]}},
+				"checksum": 1578848558
 			}`,
 			containermap.ContainerMap{},
 			"",
@@ -78,16 +79,16 @@ func TestCheckpointStateRestore(t *testing.T) {
 					"pod": map[string][]Block{
 						"container1": []Block{
 							{
-								Affinity: 0,
-								Type:     MemoryTypeRegular,
-								Size:     512,
+								NUMAAffinity: 0,
+								Type:         core.ResourceMemory,
+								Size:         512,
 							},
 						},
 					},
 				},
 				machineState: MemoryMap{
-					0: map[MemoryType]MemoryTable{
-						MemoryTypeRegular: MemoryTable{
+					0: map[core.ResourceName]MemoryTable{
+						core.ResourceMemory: MemoryTable{
 							Allocatable:    1024,
 							Free:           1024,
 							Reserved:       512,
@@ -118,16 +119,16 @@ func TestCheckpointStateRestore(t *testing.T) {
 		// 			"pod": map[string][]Block{
 		// 				"container1": []Block{
 		// 					{
-		// 						Affinity: 0,
-		// 						Type:     MemoryTypeRegular,
+		// 						NUMAAffinity: 0,
+		// 						Type:     core.ResourceMemory,
 		// 						Size:     1024,
 		// 					},
 		// 				},
 		// 			},
 		// 		},
 		// 		machineState: MemoryMap{
-		// 			0: map[MemoryType]MemoryTable{
-		// 				MemoryTypeRegular: MemoryTable{
+		// 			0: map[core.ResourceName]MemoryTable{
+		// 				core.ResourceMemory: MemoryTable{
 		// 					Allocatable:    1024,
 		// 					Free:           1024,
 		// 					Reserved:       512,
@@ -224,16 +225,16 @@ func TestCheckpointStateStore(t *testing.T) {
 					"pod": map[string][]Block{
 						"container1": []Block{
 							{
-								Affinity: 0,
-								Type:     MemoryTypeRegular,
-								Size:     1024,
+								NUMAAffinity: 0,
+								Type:         core.ResourceMemory,
+								Size:         1024,
 							},
 						},
 					},
 				},
 				machineState: MemoryMap{
-					0: map[MemoryType]MemoryTable{
-						MemoryTypeRegular: MemoryTable{
+					0: map[core.ResourceName]MemoryTable{
+						core.ResourceMemory: MemoryTable{
 							Allocatable:    1024,
 							Free:           1024,
 							Reserved:       512,
@@ -251,16 +252,16 @@ func TestCheckpointStateStore(t *testing.T) {
 					"pod": map[string][]Block{
 						"container1": []Block{
 							{
-								Affinity: 0,
-								Type:     MemoryTypeRegular,
-								Size:     1024,
+								NUMAAffinity: 0,
+								Type:         core.ResourceMemory,
+								Size:         1024,
 							},
 						},
 					},
 				},
 				machineState: MemoryMap{
-					0: map[MemoryType]MemoryTable{
-						MemoryTypeRegular: MemoryTable{
+					0: map[core.ResourceName]MemoryTable{
+						core.ResourceMemory: MemoryTable{
 							Allocatable:    1024,
 							Free:           1024,
 							Reserved:       512,
@@ -315,16 +316,16 @@ func TestCheckpointStateStore(t *testing.T) {
 // 				"pod": map[string][]Block{
 // 					"container1": []Block{
 // 						{
-// 							Affinity: 0,
-// 							Type:     MemoryTypeRegular,
+// 							NUMAAffinity: 0,
+// 							Type:     core.ResourceMemory,
 // 							Size:     1024,
 // 						},
 // 					},
 // 				},
 // 			},
 // 			machineState: MemoryMap{
-// 				0: map[MemoryType]*MemoryTable{
-// 					MemoryTypeRegular: &MemoryTable{
+// 				0: map[core.ResourceName]*MemoryTable{
+// 					core.ResourceMemory: &MemoryTable{
 // 						Allocatable:    1024,
 // 						Free:           1024,
 // 						Reserved:       512,
@@ -340,16 +341,16 @@ func TestCheckpointStateStore(t *testing.T) {
 // 				"pod": map[string][]Block{
 // 					"container1": []Block{
 // 						{
-// 							Affinity: 0,
-// 							Type:     MemoryTypeRegular,
+// 							NUMAAffinity: 0,
+// 							Type:     core.ResourceMemory,
 // 							Size:     1024,
 // 						},
 // 					},
 // 				},
 // 			},
 // 			machineState: MemoryMap{
-// 				0: map[MemoryType]*MemoryTable{
-// 					MemoryTypeRegular: &MemoryTable{
+// 				0: map[core.ResourceName]*MemoryTable{
+// 					core.ResourceMemory: &MemoryTable{
 // 						Allocatable:    1024,
 // 						Free:           1024,
 // 						Reserved:       512,
@@ -365,16 +366,16 @@ func TestCheckpointStateStore(t *testing.T) {
 // 				"pod": map[string][]Block{
 // 					"container1": []Block{
 // 						{
-// 							Affinity: 0,
-// 							Type:     MemoryTypeRegular,
+// 							NUMAAffinity: 0,
+// 							Type:     core.ResourceMemory,
 // 							Size:     1024,
 // 						},
 // 					},
 // 				},
 // 			},
 // 			machineState: MemoryMap{
-// 				0: map[MemoryType]*MemoryTable{
-// 					MemoryTypeRegular: &MemoryTable{
+// 				0: map[core.ResourceName]*MemoryTable{
+// 					core.ResourceMemory: &MemoryTable{
 // 						Allocatable:    1024,
 // 						Free:           1024,
 // 						Reserved:       512,

@@ -37,7 +37,7 @@ type stateCheckpoint struct {
 	initialContainers containermap.ContainerMap
 }
 
-// NewCheckpointState creates new State for keeping track of cpu/pod assignment with checkpoint backend
+// NewCheckpointState creates new State for keeping track of memory/pod assignment with checkpoint backend
 func NewCheckpointState(stateDir, checkpointName string, initialContainers containermap.ContainerMap) (State, error) {
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
 	if err != nil {
@@ -84,8 +84,8 @@ func (sc *stateCheckpoint) restoreState() error {
 // saves state to a checkpoint, caller is responsible for locking
 func (sc *stateCheckpoint) storeState() error {
 	checkpoint := NewMemoryManagerCheckpoint()
-	checkpoint.MachineState = sc.cache.GetMachineState().Clone()
-	checkpoint.Entries = sc.cache.GetMemoryAssignments().Clone()
+	checkpoint.MachineState = sc.cache.GetMachineState()
+	checkpoint.Entries = sc.cache.GetMemoryAssignments()
 
 	err := sc.checkpointManager.CreateCheckpoint(sc.checkpointName, checkpoint)
 	if err != nil {
@@ -95,7 +95,7 @@ func (sc *stateCheckpoint) storeState() error {
 	return nil
 }
 
-// GetMemoryState returns Memory Map that stored in State
+// GetMemoryState returns Memory Map stored in the State
 func (sc *stateCheckpoint) GetMachineState() MemoryMap {
 	sc.RLock()
 	defer sc.RUnlock()
@@ -103,7 +103,7 @@ func (sc *stateCheckpoint) GetMachineState() MemoryMap {
 	return sc.cache.GetMachineState()
 }
 
-// GetMemoryBlocks returns memory assignments of container
+// GetMemoryBlocks returns memory assignments of a container
 func (sc *stateCheckpoint) GetMemoryBlocks(podUID string, containerName string) []Block {
 	sc.RLock()
 	defer sc.RUnlock()
@@ -143,7 +143,7 @@ func (sc *stateCheckpoint) SetMemoryBlocks(podUID string, containerName string, 
 	}
 }
 
-// SetMemoryAssignments sets ContainerMemoryAssignments by passed parameter
+// SetMemoryAssignments sets ContainerMemoryAssignments by using the passed parameter
 func (sc *stateCheckpoint) SetMemoryAssignments(assignments ContainerMemoryAssignments) {
 	sc.Lock()
 	defer sc.Unlock()
@@ -155,7 +155,7 @@ func (sc *stateCheckpoint) SetMemoryAssignments(assignments ContainerMemoryAssig
 	}
 }
 
-// Delete deletes corresponding Block from ContainerMemoryAssignments
+// Delete deletes corresponding Blocks from ContainerMemoryAssignments
 func (sc *stateCheckpoint) Delete(podUID string, containerName string) {
 	sc.Lock()
 	defer sc.Unlock()

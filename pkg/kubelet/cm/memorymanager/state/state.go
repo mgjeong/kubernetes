@@ -52,7 +52,7 @@ func (mm MemoryMap) Clone() MemoryMap {
 
 // Block is a data structure used to represent a certain amount of memory
 type Block struct {
-	NUMAAffinity uint64            `json:"numaAffinity"`
+	NUMAAffinity int               `json:"numaAffinity"`
 	Type         core.ResourceName `json:"type"`
 	Size         uint64            `json:"size"`
 }

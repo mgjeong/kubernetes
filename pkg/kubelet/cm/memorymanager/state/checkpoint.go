@@ -27,6 +27,7 @@ var _ checkpointmanager.Checkpoint = &MemoryManagerCheckpoint{}
 
 // MemoryManagerCheckpoint struct is used to store memory/pod assignments in a checkpoint
 type MemoryManagerCheckpoint struct {
+	PolicyName   string                     `json:"policyName"`
 	MachineState MemoryMap                  `json:"machineState"`
 	Entries      ContainerMemoryAssignments `json:"entries,omitempty"`
 	Checksum     checksum.Checksum          `json:"checksum"`

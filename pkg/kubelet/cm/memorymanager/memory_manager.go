@@ -28,7 +28,6 @@ import (
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 	"k8s.io/klog"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/containermap"
-	mmpolicy "k8s.io/kubernetes/pkg/kubelet/cm/memorymanager/policy"
 	"k8s.io/kubernetes/pkg/kubelet/cm/memorymanager/state"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
 	"k8s.io/kubernetes/pkg/kubelet/config"
@@ -83,7 +82,7 @@ type Manager interface {
 
 type manager struct {
 	sync.Mutex
-	policy mmpolicy.Policy
+	policy Policy
 
 	// reconcilePeriod is the duration between calls to reconcileState.
 	reconcilePeriod time.Duration
@@ -122,16 +121,16 @@ var _ Manager = &manager{}
 
 // NewManager returns new instance of the memory manager
 func NewManager(policyName string, reconcilePeriod time.Duration, machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, stateFileDirectory string, affinity topologymanager.Store) (Manager, error) {
-	var policy mmpolicy.Policy
+	var policy Policy
 
-	switch mmpolicy.Type(policyName) {
+	switch policyType(policyName) {
 
-	case mmpolicy.TypeNone:
-		policy = mmpolicy.NewNone()
+	case policyTypeNone:
+		policy = NewPolicyNone()
 
-	case mmpolicy.TypeSingleNUMA:
+	case policyTypeSingleNUMA:
 		// TODO: need to provide additional fields, to select NUMA nodes with enough memory
-		policy = mmpolicy.NewSingleNUMA()
+		policy = NewPolicySingleNUMA()
 
 	default:
 		return nil, fmt.Errorf("unknown policy: \"%s\"", policyName)
@@ -170,7 +169,7 @@ func (m *manager) Start(activePods ActivePodsFunc, sourcesReady config.SourcesRe
 		return err
 	}
 
-	if m.policy.Name() == string(mmpolicy.TypeNone) {
+	if m.policy.Name() == string(policyTypeNone) {
 		return nil
 	}
 
@@ -181,10 +180,8 @@ func (m *manager) Start(activePods ActivePodsFunc, sourcesReady config.SourcesRe
 
 // AddContainer saves the value of requested memory for the guaranteed pod under the state and set memory affinity according to the topolgy manager
 func (m *manager) AddContainer(pod *v1.Pod, container *v1.Container, containerID string) error {
-	m.Lock()
 	// Get memory blocks assigned to the container during Allocate()
 	blocks := m.state.GetMemoryBlocks(string(pod.UID), container.Name)
-	m.Unlock()
 
 	if len(blocks) > 0 {
 		// it does not possible that memory blocks under the same container will have different NUMA affinity,
@@ -210,10 +207,12 @@ func (m *manager) AddContainer(pod *v1.Pod, container *v1.Container, containerID
 
 // Allocate is called to pre-allocate memory resources during Pod admission.
 func (m *manager) Allocate(pod *v1.Pod, container *v1.Container) error {
+	// Garbage collect any stranded resources before allocation
+	m.removeStaleState()
+
 	m.Lock()
 	defer m.Unlock()
-
-	// Call down into the policy to assign this container CPUs if required.
+	// Call down into the policy to assign this container memory if required.
 	err := m.policy.Allocate(m.state, pod, container)
 	if err != nil {
 		klog.Errorf("[memorymanager] Allocate error: %v", err)
@@ -289,7 +288,7 @@ func (m *manager) removeStaleState() {
 	for podUID := range assignments {
 		for containerName := range assignments[podUID] {
 			if _, ok := activeContainers[podUID][containerName]; !ok {
-				klog.Errorf("[memorymanager] removeStaleState: removing (pod %s, container: %s)", podUID, containerName)
+				klog.Infof("[memorymanager] removeStaleState: removing (pod %s, container: %s)", podUID, containerName)
 				err := m.policyRemoveContainerByRef(podUID, containerName)
 				if err != nil {
 					klog.Errorf("[memorymanager] removeStaleState: failed to remove (pod %s, container %s), error: %v)", podUID, containerName, err)

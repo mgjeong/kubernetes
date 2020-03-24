@@ -5,12 +5,14 @@ go_library(
     srcs = [
         "fake_memory_manager.go",
         "memory_manager.go",
+        "policy.go",
+        "policy_none.go",
+        "policy_single_numa.go",
     ],
     importpath = "k8s.io/kubernetes/pkg/kubelet/cm/memorymanager",
     visibility = ["//visibility:public"],
     deps = [
         "//pkg/kubelet/cm/cpumanager/containermap:go_default_library",
-        "//pkg/kubelet/cm/memorymanager/policy:go_default_library",
         "//pkg/kubelet/cm/memorymanager/state:go_default_library",
         "//pkg/kubelet/cm/topologymanager:go_default_library",
         "//pkg/kubelet/config:go_default_library",
@@ -33,7 +35,6 @@ filegroup(
     name = "all-srcs",
     srcs = [
         ":package-srcs",
-        "//pkg/kubelet/cm/memorymanager/policy:all-srcs",
         "//pkg/kubelet/cm/memorymanager/state:all-srcs",
     ],
     tags = ["automanaged"],

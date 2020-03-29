@@ -117,6 +117,25 @@ var _ Manager = &manager{}
 
 // NewManager returns new instance of the memory manager
 func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, stateFileDirectory string, affinity topologymanager.Store) (Manager, error) {
+	// TODO: we should add new kubelet parameter, and to get reserved memory per NUMA node from it
+	// currently we use kube-reserved + system-reserved + eviction reserve for each NUMA node, that creates memory over-consumption
+	// and no reservation for huge pages
+	reserved := ReservedMemory{}
+	for _, node := range machineInfo.Topology {
+		memory := nodeAllocatableReservation[v1.ResourceMemory]
+		if memory.IsZero() {
+			break
+		}
+		value, succeeded := memory.AsInt64()
+		if !succeeded {
+			return nil, fmt.Errorf("failed to represent reserved memory as int64")
+		}
+
+		reserved[node.Id] = map[v1.ResourceName]uint64{
+			v1.ResourceMemory: uint64(value),
+		}
+	}
+
 	var policy Policy
 
 	switch policyType(policyName) {
@@ -125,8 +144,7 @@ func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAll
 		policy = NewPolicyNone()
 
 	case policyTypeSingleNUMA:
-		// TODO: need to provide additional fields, to select NUMA nodes with enough memory
-		policy = NewPolicySingleNUMA()
+		policy = NewPolicySingleNUMA(machineInfo, reserved, affinity)
 
 	default:
 		return nil, fmt.Errorf("unknown policy: \"%s\"", policyName)

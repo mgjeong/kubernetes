@@ -11,11 +11,11 @@ go_library(
     importpath = "k8s.io/kubernetes/pkg/kubelet/cm/memorymanager/state",
     visibility = ["//visibility:public"],
     deps = [
-        "//pkg/apis/core:go_default_library",
         "//pkg/kubelet/checkpointmanager:go_default_library",
         "//pkg/kubelet/checkpointmanager/checksum:go_default_library",
         "//pkg/kubelet/checkpointmanager/errors:go_default_library",
         "//pkg/kubelet/cm/cpumanager/containermap:go_default_library",
+        "//staging/src/k8s.io/api/core/v1:go_default_library",
         "//vendor/k8s.io/klog:go_default_library",
     ],
 )
@@ -25,10 +25,10 @@ go_test(
     srcs = ["state_checkpoint_test.go"],
     embed = [":go_default_library"],
     deps = [
-        "//pkg/apis/core:go_default_library",
         "//pkg/kubelet/checkpointmanager:go_default_library",
         "//pkg/kubelet/cm/cpumanager/containermap:go_default_library",
         "//pkg/kubelet/cm/cpumanager/state/testing:go_default_library",
+        "//staging/src/k8s.io/api/core/v1:go_default_library",
         "//vendor/github.com/stretchr/testify/assert:go_default_library",
     ],
 )

@@ -27,7 +27,7 @@ const policyTypeSingleNUMA policyType = "single-numa"
 // TODO: need to implement all methods
 
 // SingleNUMAPolicy is implementation of the policy interface for the single NUMA policy
-// TODO: neet to re-evaluate what field we really need
+// TODO: need to re-evaluate what field we really need
 type singleNUMAPolicy struct {
 	// topology manager reference to get container Topology affinity
 	affinity topologymanager.Store

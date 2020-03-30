@@ -339,8 +339,6 @@ func NewContainerManager(mountUtil mount.Interface, cadvisorInterface cadvisor.I
 	if utilfeature.DefaultFeatureGate.Enabled(kubefeatures.MemoryManager) {
 		cm.memoryManager, err = memorymanager.NewManager(
 			nodeConfig.ExperimentalMemoryManagerPolicy,
-			// TODO: consider to remove it
-			5*time.Second,
 			machineInfo,
 			cm.GetNodeAllocatableReservation(),
 			nodeConfig.KubeletRootDir,

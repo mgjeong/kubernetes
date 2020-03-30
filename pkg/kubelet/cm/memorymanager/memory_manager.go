@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
-	"time"
 
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 
@@ -84,9 +83,6 @@ type manager struct {
 	sync.Mutex
 	policy Policy
 
-	// reconcilePeriod is the duration between calls to reconcileState.
-	reconcilePeriod time.Duration
-
 	// state allows to restore information regarding memory allocation for guaranteed pods
 	// in the case of the kubelet restart
 	state state.State
@@ -120,7 +116,7 @@ type manager struct {
 var _ Manager = &manager{}
 
 // NewManager returns new instance of the memory manager
-func NewManager(policyName string, reconcilePeriod time.Duration, machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, stateFileDirectory string, affinity topologymanager.Store) (Manager, error) {
+func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, stateFileDirectory string, affinity topologymanager.Store) (Manager, error) {
 	var policy Policy
 
 	switch policyType(policyName) {
@@ -138,7 +134,6 @@ func NewManager(policyName string, reconcilePeriod time.Duration, machineInfo *c
 
 	manager := &manager{
 		policy:                     policy,
-		reconcilePeriod:            reconcilePeriod,
 		nodeAllocatableReservation: nodeAllocatableReservation,
 		stateFileDirectory:         stateFileDirectory,
 	}
@@ -149,7 +144,6 @@ func NewManager(policyName string, reconcilePeriod time.Duration, machineInfo *c
 // Start starts the memory manager reconcile loop under the kubelet to keep state updated
 func (m *manager) Start(activePods ActivePodsFunc, sourcesReady config.SourcesReady, podStatusProvider status.PodStatusProvider, containerRuntime runtimeService, initialContainers containermap.ContainerMap) error {
 	klog.Infof("[memorymanager] starting with %s policy", m.policy.Name())
-	klog.Infof("[memorymanager] reconciling every %v", m.reconcilePeriod)
 	m.sourcesReady = sourcesReady
 	m.activePods = activePods
 	m.podStatusProvider = podStatusProvider
@@ -169,12 +163,6 @@ func (m *manager) Start(activePods ActivePodsFunc, sourcesReady config.SourcesRe
 		return err
 	}
 
-	if m.policy.Name() == string(policyTypeNone) {
-		return nil
-	}
-
-	// TODO: we should to decide if we really need the reconcile loop under the memory management
-	// go wait.Until(func() { m.reconcileState() }, m.reconcilePeriod, wait.NeverStop)
 	return nil
 }
 

@@ -1,5 +1,5 @@
 /*
-Copyright 2018 The Kubernetes Authors.
+Copyright 2020 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -64,16 +64,17 @@ func TestCheckpointStateRestore(t *testing.T) {
 		{
 			"Restore valid checkpoint",
 			`{
+				"policyName":"singleNUMA",
 				"machineState":{"0":{"memory":{"total":2048,"systemReserved":512,"allocatable":1536,"reserved":512,"free":1024}}},
 				"entries":{"pod":{"container1":[{"numaAffinity":0,"type":"memory","size":512}]}},
-				"checksum": 2985921670
+				"checksum": 881661173
 			}`,
 			containermap.ContainerMap{},
 			"",
 			&stateMemory{
 				assignments: ContainerMemoryAssignments{
 					"pod": map[string][]Block{
-						"container1": []Block{
+						"container1": {
 							{
 								NUMAAffinity: 0,
 								Type:         core.ResourceMemory,
@@ -84,7 +85,7 @@ func TestCheckpointStateRestore(t *testing.T) {
 				},
 				machineState: MemoryMap{
 					0: map[core.ResourceName]MemoryTable{
-						core.ResourceMemory: MemoryTable{
+						core.ResourceMemory: {
 							Allocatable:    1536,
 							Free:           1024,
 							Reserved:       512,
@@ -98,6 +99,7 @@ func TestCheckpointStateRestore(t *testing.T) {
 		{
 			"Restore checkpoint with invalid checksum",
 			`{
+				"policyName":"singleNUMA",
 				"machineState":{"0":{"memory":{"total":2048,"systemReserved":512,"allocatable":1536,"reserved":512,"free":1024}}},
 				"entries":{"pod":{"container1":[{"affinity":0,"type":"memory","size":512}]}},
 				"checksum": 101010
@@ -130,7 +132,7 @@ func TestCheckpointStateRestore(t *testing.T) {
 				assert.NoError(t, cpm.CreateCheckpoint(testingCheckpoint, checkpoint), "could not create testing checkpoint")
 			}
 
-			restoredState, err := NewCheckpointState(testingDir, testingCheckpoint, tc.initialContainers)
+			restoredState, err := NewCheckpointState(testingDir, testingCheckpoint, "singleNUMA", tc.initialContainers)
 			if strings.TrimSpace(tc.expectedError) != "" {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), "could not restore state from checkpoint: "+tc.expectedError)
@@ -147,7 +149,7 @@ func TestCheckpointStateStore(t *testing.T) {
 	expectedState := &stateMemory{
 		assignments: ContainerMemoryAssignments{
 			"pod": map[string][]Block{
-				"container1": []Block{
+				"container1": {
 					{
 						NUMAAffinity: 0,
 						Type:         core.ResourceMemory,
@@ -158,7 +160,7 @@ func TestCheckpointStateStore(t *testing.T) {
 		},
 		machineState: MemoryMap{
 			0: map[core.ResourceName]MemoryTable{
-				core.ResourceMemory: MemoryTable{
+				core.ResourceMemory: {
 					Allocatable:    1536,
 					Free:           512,
 					Reserved:       1024,
@@ -174,7 +176,7 @@ func TestCheckpointStateStore(t *testing.T) {
 
 	cpm.RemoveCheckpoint(testingCheckpoint)
 
-	cs1, err := NewCheckpointState(testingDir, testingCheckpoint, nil)
+	cs1, err := NewCheckpointState(testingDir, testingCheckpoint, "singleNUMA", nil)
 	assert.NoError(t, err, "could not create testing checkpointState instance")
 
 	// set values of cs1 instance so they are stored in checkpoint and can be read by cs2
@@ -182,7 +184,7 @@ func TestCheckpointStateStore(t *testing.T) {
 	cs1.SetMemoryAssignments(expectedState.assignments)
 
 	// restore checkpoint with previously stored values
-	cs2, err := NewCheckpointState(testingDir, testingCheckpoint, nil)
+	cs2, err := NewCheckpointState(testingDir, testingCheckpoint, "singleNUMA", nil)
 	assert.NoError(t, err, "could not create testing checkpointState instance")
 
 	assertStateEqual(t, cs2, expectedState)
@@ -198,7 +200,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 			description: "One container",
 			assignments: ContainerMemoryAssignments{
 				"pod": map[string][]Block{
-					"container1": []Block{
+					"container1": {
 						{
 							NUMAAffinity: 0,
 							Type:         core.ResourceMemory,
@@ -209,7 +211,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 			},
 			machineState: MemoryMap{
 				0: map[core.ResourceName]MemoryTable{
-					core.ResourceMemory: MemoryTable{
+					core.ResourceMemory: {
 						Allocatable:    1536,
 						Free:           512,
 						Reserved:       1024,
@@ -223,14 +225,14 @@ func TestCheckpointStateHelpers(t *testing.T) {
 			description: "Two containers",
 			assignments: ContainerMemoryAssignments{
 				"pod": map[string][]Block{
-					"container1": []Block{
+					"container1": {
 						{
 							NUMAAffinity: 0,
 							Type:         core.ResourceMemory,
 							Size:         512,
 						},
 					},
-					"container2": []Block{
+					"container2": {
 						{
 							NUMAAffinity: 0,
 							Type:         core.ResourceMemory,
@@ -241,7 +243,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 			},
 			machineState: MemoryMap{
 				0: map[core.ResourceName]MemoryTable{
-					core.ResourceMemory: MemoryTable{
+					core.ResourceMemory: {
 						Allocatable:    1536,
 						Free:           512,
 						Reserved:       1024,
@@ -255,12 +257,12 @@ func TestCheckpointStateHelpers(t *testing.T) {
 			description: "Container without assigned memory",
 			assignments: ContainerMemoryAssignments{
 				"pod": map[string][]Block{
-					"container1": []Block{},
+					"container1": {},
 				},
 			},
 			machineState: MemoryMap{
 				0: map[core.ResourceName]MemoryTable{
-					core.ResourceMemory: MemoryTable{
+					core.ResourceMemory: {
 						Allocatable:    1536,
 						Free:           1536,
 						Reserved:       0,
@@ -280,7 +282,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 			// ensure there is no previous checkpoint
 			cpm.RemoveCheckpoint(testingCheckpoint)
 
-			state, err := NewCheckpointState(testingDir, testingCheckpoint, nil)
+			state, err := NewCheckpointState(testingDir, testingCheckpoint, "singleNUMA", nil)
 			assert.NoError(t, err, "could not create testing checkpoint manager")
 
 			state.SetMachineState(tc.machineState)
@@ -309,7 +311,7 @@ func TestCheckpointStateClear(t *testing.T) {
 			description: "Valid state cleaning",
 			assignments: ContainerMemoryAssignments{
 				"pod": map[string][]Block{
-					"container1": []Block{
+					"container1": {
 						{
 							NUMAAffinity: 0,
 							Type:         core.ResourceMemory,
@@ -320,7 +322,7 @@ func TestCheckpointStateClear(t *testing.T) {
 			},
 			machineState: MemoryMap{
 				0: map[core.ResourceName]MemoryTable{
-					core.ResourceMemory: MemoryTable{
+					core.ResourceMemory: {
 						Allocatable:    1536,
 						Free:           512,
 						Reserved:       1024,
@@ -334,7 +336,7 @@ func TestCheckpointStateClear(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			state, err := NewCheckpointState(testingDir, testingCheckpoint, nil)
+			state, err := NewCheckpointState(testingDir, testingCheckpoint, "singleNUMA", nil)
 			assert.NoError(t, err, "could not create testing checkpoint manager")
 
 			state.SetMachineState(tc.machineState)

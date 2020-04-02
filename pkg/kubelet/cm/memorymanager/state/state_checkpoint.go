@@ -1,5 +1,5 @@
 /*
-Copyright 2018 The Kubernetes Authors.
+Copyright 2020 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -32,19 +32,21 @@ var _ State = &stateCheckpoint{}
 type stateCheckpoint struct {
 	sync.RWMutex
 	cache             State
+	policyName        string
 	checkpointManager checkpointmanager.CheckpointManager
 	checkpointName    string
 	initialContainers containermap.ContainerMap
 }
 
 // NewCheckpointState creates new State for keeping track of memory/pod assignment with checkpoint backend
-func NewCheckpointState(stateDir, checkpointName string, initialContainers containermap.ContainerMap) (State, error) {
+func NewCheckpointState(stateDir, checkpointName, policyName string, initialContainers containermap.ContainerMap) (State, error) {
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)
 	}
 	stateCheckpoint := &stateCheckpoint{
 		cache:             NewMemoryState(),
+		policyName:        policyName,
 		checkpointManager: checkpointManager,
 		checkpointName:    checkpointName,
 		initialContainers: initialContainers,
@@ -84,6 +86,7 @@ func (sc *stateCheckpoint) restoreState() error {
 // saves state to a checkpoint, caller is responsible for locking
 func (sc *stateCheckpoint) storeState() error {
 	checkpoint := NewMemoryManagerCheckpoint()
+	checkpoint.PolicyName = sc.policyName
 	checkpoint.MachineState = sc.cache.GetMachineState()
 	checkpoint.Entries = sc.cache.GetMemoryAssignments()
 

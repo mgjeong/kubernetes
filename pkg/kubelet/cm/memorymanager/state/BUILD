@@ -29,6 +29,7 @@ go_test(
         "//pkg/kubelet/checkpointmanager:go_default_library",
         "//pkg/kubelet/cm/cpumanager/containermap:go_default_library",
         "//pkg/kubelet/cm/cpumanager/state/testing:go_default_library",
+        "//vendor/github.com/stretchr/testify/assert:go_default_library",
     ],
 )
 

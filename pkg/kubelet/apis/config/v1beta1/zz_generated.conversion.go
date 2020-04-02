@@ -333,6 +333,7 @@ func autoConvert_v1beta1_KubeletConfiguration_To_config_KubeletConfiguration(in 
 	out.KubeReservedCgroup = in.KubeReservedCgroup
 	out.EnforceNodeAllocatable = *(*[]string)(unsafe.Pointer(&in.EnforceNodeAllocatable))
 	out.AllowedUnsafeSysctls = *(*[]string)(unsafe.Pointer(&in.AllowedUnsafeSysctls))
+	out.PreReservedMemoryZone = *(*[]map[string]string)(unsafe.Pointer(&in.PreReservedMemoryZone))
 	return nil
 }
 
@@ -468,6 +469,7 @@ func autoConvert_config_KubeletConfiguration_To_v1beta1_KubeletConfiguration(in 
 	out.EnforceNodeAllocatable = *(*[]string)(unsafe.Pointer(&in.EnforceNodeAllocatable))
 	out.ReservedSystemCPUs = in.ReservedSystemCPUs
 	out.ShowHiddenMetricsForVersion = in.ShowHiddenMetricsForVersion
+	out.PreReservedMemoryZone = *(*[]map[string]string)(unsafe.Pointer(&in.PreReservedMemoryZone))
 	return nil
 }
 

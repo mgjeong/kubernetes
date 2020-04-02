@@ -23,10 +23,10 @@ import (
 	"sync"
 
 	cadvisorapi "github.com/google/cadvisor/info/v1"
-
 	v1 "k8s.io/api/core/v1"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 	"k8s.io/klog"
+	corev1helper "k8s.io/kubernetes/pkg/apis/core/v1/helper"
 	"k8s.io/kubernetes/pkg/kubelet/cm/containermap"
 	"k8s.io/kubernetes/pkg/kubelet/cm/memorymanager/state"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
@@ -117,7 +117,7 @@ type manager struct {
 var _ Manager = &manager{}
 
 // NewManager returns new instance of the memory manager
-func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, stateFileDirectory string, affinity topologymanager.Store) (Manager, error) {
+func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, preReservedMemory map[int]map[v1.ResourceName]uint64, stateFileDirectory string, affinity topologymanager.Store) (Manager, error) {
 	var policy Policy
 
 	switch policyType(policyName) {
@@ -126,7 +126,7 @@ func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAll
 		policy = NewPolicyNone()
 
 	case policyTypeSingleNUMA:
-		reserved, err := getReservedMemory(machineInfo, nodeAllocatableReservation)
+		reserved, err := getReservedMemory(machineInfo, nodeAllocatableReservation, preReservedMemory)
 		if err != nil {
 			return nil, err
 		}
@@ -300,24 +300,73 @@ func (m *manager) policyRemoveContainerByRef(podUID string, containerName string
 	return err
 }
 
-func getReservedMemory(machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList) (reservedMemory, error) {
-	// TODO: we should add new kubelet parameter, and to get reserved memory per NUMA node from it
-	// currently we use kube-reserved + system-reserved + eviction reserve for each NUMA node, that creates memory over-consumption
-	// and no reservation for huge pages
-	reserved := reservedMemory{}
-	for _, node := range machineInfo.Topology {
-		memory := nodeAllocatableReservation[v1.ResourceMemory]
-		if memory.IsZero() {
-			break
-		}
-		value, succeeded := memory.AsInt64()
-		if !succeeded {
-			return nil, fmt.Errorf("failed to represent reserved memory as int64")
-		}
+func getTotalMemoryTypeReserved(preReservedMemory map[int]map[v1.ResourceName]uint64) map[v1.ResourceName]uint64 {
+	totalMemoryType := map[v1.ResourceName]uint64{}
 
-		reserved[node.Id] = map[v1.ResourceName]uint64{
-			v1.ResourceMemory: uint64(value),
+	for _, node := range preReservedMemory {
+		for memType, memVal := range node {
+			if totalMem, exists := totalMemoryType[memType]; exists {
+				totalMemoryType[memType] = totalMem + memVal
+			} else {
+				totalMemoryType[memType] = memVal
+			}
 		}
 	}
-	return reserved, nil
+
+	return totalMemoryType
+}
+
+func validatePreReservedMemory(nodeAllocatableReservation v1.ResourceList, preReservedMemory map[int]map[v1.ResourceName]uint64) error {
+	totalMemoryType := getTotalMemoryTypeReserved(preReservedMemory)
+
+	commonMemoryTypeSet := make(map[v1.ResourceName]bool)
+	for resourceType := range totalMemoryType {
+		if !(corev1helper.IsHugePageResourceName(resourceType) || resourceType == v1.ResourceMemory) {
+			continue
+		}
+		commonMemoryTypeSet[resourceType] = true
+	}
+	for resourceType := range nodeAllocatableReservation {
+		if !(corev1helper.IsHugePageResourceName(resourceType) || resourceType == v1.ResourceMemory) {
+			continue
+		}
+		commonMemoryTypeSet[resourceType] = true
+	}
+
+	for resourceType := range commonMemoryTypeSet {
+		if !(corev1helper.IsHugePageResourceName(resourceType) || resourceType == v1.ResourceMemory) {
+			continue
+		}
+
+		var nodeAllocatableMemory uint64
+		if memValue, set := nodeAllocatableReservation[resourceType]; set {
+			memValueTmp, succeeded := memValue.AsInt64()
+			if !succeeded {
+				return fmt.Errorf("failed to convert Node Allocatable memory of type \"%s\" to int64 type", resourceType)
+			}
+			nodeAllocatableMemory = uint64(memValueTmp)
+		} else {
+			nodeAllocatableMemory = 0
+		}
+
+		var preReservedMemory uint64
+		if memValue, set := totalMemoryType[resourceType]; set {
+			preReservedMemory = memValue
+		} else {
+			preReservedMemory = 0
+		}
+		if nodeAllocatableMemory != preReservedMemory {
+			return fmt.Errorf("the total amount of memory of type \"%s\" is not equal to the value determined by Node Allocatable feature", resourceType)
+		}
+	}
+
+	return nil
+}
+
+func getReservedMemory(machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, preReservedMemory map[int]map[v1.ResourceName]uint64) (reservedMemory, error) {
+	if err := validatePreReservedMemory(nodeAllocatableReservation, preReservedMemory); err != nil {
+		return nil, err
+	}
+
+	return preReservedMemory, nil
 }

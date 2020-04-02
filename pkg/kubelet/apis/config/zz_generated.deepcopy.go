@@ -186,6 +186,19 @@ func (in *KubeletConfiguration) DeepCopyInto(out *KubeletConfiguration) {
 		copy(*out, *in)
 	}
 	out.Logging = in.Logging
+	if in.PreReservedMemoryZone != nil {
+		in, out := &in.PreReservedMemoryZone, &out.PreReservedMemoryZone
+		*out = make([]map[string]string, len(*in))
+		for i := range *in {
+			if (*in)[i] != nil {
+				in, out := &(*in)[i], &(*out)[i]
+				*out = make(map[string]string, len(*in))
+				for key, val := range *in {
+					(*out)[key] = val
+				}
+			}
+		}
+	}
 	return
 }
 

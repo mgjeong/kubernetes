@@ -35,7 +35,7 @@ const policyTypeSingleNUMA policyType = "single-numa"
 
 // TODO: need to implement all methods
 
-type ReservedMemory map[int]map[v1.ResourceName]uint64
+type reservedMemory map[int]map[v1.ResourceName]uint64
 
 // SingleNUMAPolicy is implementation of the policy interface for the single NUMA policy
 // TODO: need to re-evaluate what field we really need
@@ -43,7 +43,7 @@ type singleNUMAPolicy struct {
 	// machineInfo contains machine memory related information
 	machineInfo *cadvisorapi.MachineInfo
 	// reserved contains memory that reserved for kube
-	systemReserved ReservedMemory
+	systemReserved reservedMemory
 	// topology manager reference to get container Topology affinity
 	affinity topologymanager.Store
 }
@@ -51,7 +51,7 @@ type singleNUMAPolicy struct {
 var _ Policy = &singleNUMAPolicy{}
 
 // NewPolicySingleNUMA returns new single NUMA policy instance
-func NewPolicySingleNUMA(machineInfo *cadvisorapi.MachineInfo, reserved ReservedMemory, affinity topologymanager.Store) Policy {
+func NewPolicySingleNUMA(machineInfo *cadvisorapi.MachineInfo, reserved reservedMemory, affinity topologymanager.Store) Policy {
 	// TODO: check if we have enough reserved memory for the system
 	//for _, node := range reserved {
 	//	if node[v1.ResourceMemory] == 0 {
@@ -90,18 +90,25 @@ func (p *singleNUMAPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Co
 		return nil
 	}
 
-	// Call Topology Manager to get the aligned memory affinity across all hint providers.
+	// Call Topology Manager to get the aligned affinity across all hint providers.
 	hint := p.affinity.GetAffinity(string(pod.UID), container.Name)
 	klog.Infof("[memorymanager] Pod %v, Container %v Topology Affinity is: %v", pod.UID, container.Name, hint)
 
-	// TODO: should we pin the memory once the affinity hint is not available?
-	// we can pin the memory to a NUMA node different from one, that CPU manager assigned CPU's from
-	// so it can degrade container performance
-	if hint.NUMANodeAffinity == nil {
-		return fmt.Errorf("[memorymanager] failed to get NUMA affinity")
+	if !hint.Preferred {
+		return fmt.Errorf("[memorymanager] failed to get prefered NUMA affinity")
 	}
 
-	affinityBits := hint.NUMANodeAffinity.GetBits()
+	var affinityBits []int
+	if hint.NUMANodeAffinity == nil {
+		if len(p.machineInfo.Topology) > 1 {
+			return fmt.Errorf("[memorymanager] machine has more than one NUMA node, but NUMA affinity is empty")
+		}
+		// Default NUMA node affinity, when the machine has single NUMA node, will be the ID of this NUMA node
+		affinityBits = append(affinityBits, p.machineInfo.Topology[0].Id)
+	} else {
+		affinityBits = hint.NUMANodeAffinity.GetBits()
+	}
+
 	if len(affinityBits) > 1 {
 		return fmt.Errorf("[memorymanager] NUMA affinity has more than one NUMA node")
 	}

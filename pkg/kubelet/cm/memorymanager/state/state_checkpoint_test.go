@@ -25,7 +25,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
-	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/containermap"
+	"k8s.io/kubernetes/pkg/kubelet/cm/containermap"
 	testutil "k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/state/testing"
 )
 
@@ -65,7 +65,7 @@ func TestCheckpointStateRestore(t *testing.T) {
 				"policyName":"singleNUMA",
 				"machineState":{"0":{"memory":{"total":2048,"systemReserved":512,"allocatable":1536,"reserved":512,"free":1024}}},
 				"entries":{"pod":{"container1":[{"numaAffinity":0,"type":"memory","size":512}]}},
-				"checksum": 69296811
+				"checksum": 1487481263
 			}`,
 			containermap.ContainerMap{},
 			"",
@@ -82,7 +82,7 @@ func TestCheckpointStateRestore(t *testing.T) {
 					},
 				},
 				machineState: MemoryMap{
-					0: map[v1.ResourceName]MemoryTable{
+					0: map[v1.ResourceName]*MemoryTable{
 						v1.ResourceMemory: {
 							Allocatable:    1536,
 							Free:           1024,
@@ -157,7 +157,7 @@ func TestCheckpointStateStore(t *testing.T) {
 			},
 		},
 		machineState: MemoryMap{
-			0: map[v1.ResourceName]MemoryTable{
+			0: map[v1.ResourceName]*MemoryTable{
 				v1.ResourceMemory: {
 					Allocatable:    1536,
 					Free:           512,
@@ -208,7 +208,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 				},
 			},
 			machineState: MemoryMap{
-				0: map[v1.ResourceName]MemoryTable{
+				0: map[v1.ResourceName]*MemoryTable{
 					v1.ResourceMemory: {
 						Allocatable:    1536,
 						Free:           512,
@@ -240,7 +240,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 				},
 			},
 			machineState: MemoryMap{
-				0: map[v1.ResourceName]MemoryTable{
+				0: map[v1.ResourceName]*MemoryTable{
 					v1.ResourceMemory: {
 						Allocatable:    1536,
 						Free:           512,
@@ -259,7 +259,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 				},
 			},
 			machineState: MemoryMap{
-				0: map[v1.ResourceName]MemoryTable{
+				0: map[v1.ResourceName]*MemoryTable{
 					v1.ResourceMemory: {
 						Allocatable:    1536,
 						Free:           1536,
@@ -319,7 +319,7 @@ func TestCheckpointStateClear(t *testing.T) {
 				},
 			},
 			machineState: MemoryMap{
-				0: map[v1.ResourceName]MemoryTable{
+				0: map[v1.ResourceName]*MemoryTable{
 					v1.ResourceMemory: {
 						Allocatable:    1536,
 						Free:           512,

@@ -30,15 +30,15 @@ type MemoryTable struct {
 }
 
 // MemoryMap contains memory information for each NUMA node.
-type MemoryMap map[int]map[v1.ResourceName]MemoryTable
+type MemoryMap map[int]map[v1.ResourceName]*MemoryTable
 
 // Clone returns a copy of MemoryMap
 func (mm MemoryMap) Clone() MemoryMap {
 	clone := make(MemoryMap)
 	for node, memory := range mm {
-		clone[node] = map[v1.ResourceName]MemoryTable{}
+		clone[node] = map[v1.ResourceName]*MemoryTable{}
 		for memoryType, memoryTable := range memory {
-			clone[node][memoryType] = MemoryTable{
+			clone[node][memoryType] = &MemoryTable{
 				Allocatable:    memoryTable.Allocatable,
 				Free:           memoryTable.Free,
 				Reserved:       memoryTable.Reserved,

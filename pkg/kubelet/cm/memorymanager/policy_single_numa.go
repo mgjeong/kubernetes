@@ -35,7 +35,7 @@ const policyTypeSingleNUMA policyType = "single-numa"
 
 // TODO: need to implement all methods
 
-type ReservedMemory map[int]map[v1.ResourceName]uint64
+type reservedMemory map[int]map[v1.ResourceName]uint64
 
 // SingleNUMAPolicy is implementation of the policy interface for the single NUMA policy
 // TODO: need to re-evaluate what field we really need
@@ -43,7 +43,7 @@ type singleNUMAPolicy struct {
 	// machineInfo contains machine memory related information
 	machineInfo *cadvisorapi.MachineInfo
 	// reserved contains memory that reserved for kube
-	systemReserved ReservedMemory
+	systemReserved reservedMemory
 	// topology manager reference to get container Topology affinity
 	affinity topologymanager.Store
 }
@@ -51,7 +51,7 @@ type singleNUMAPolicy struct {
 var _ Policy = &singleNUMAPolicy{}
 
 // NewPolicySingleNUMA returns new single NUMA policy instance
-func NewPolicySingleNUMA(machineInfo *cadvisorapi.MachineInfo, reserved ReservedMemory, affinity topologymanager.Store) Policy {
+func NewPolicySingleNUMA(machineInfo *cadvisorapi.MachineInfo, reserved reservedMemory, affinity topologymanager.Store) Policy {
 	// TODO: check if we have enough reserved memory for the system
 	//for _, node := range reserved {
 	//	if node[v1.ResourceMemory] == 0 {
@@ -90,18 +90,25 @@ func (p *singleNUMAPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Co
 		return nil
 	}
 
-	// Call Topology Manager to get the aligned memory affinity across all hint providers.
+	// Call Topology Manager to get the aligned affinity across all hint providers.
 	hint := p.affinity.GetAffinity(string(pod.UID), container.Name)
 	klog.Infof("[memorymanager] Pod %v, Container %v Topology Affinity is: %v", pod.UID, container.Name, hint)
 
-	// TODO: should we pin the memory once the affinity hint is not available?
-	// we can pin the memory to a NUMA node different from one, that CPU manager assigned CPU's from
-	// so it can degrade container performance
-	if hint.NUMANodeAffinity == nil {
-		return fmt.Errorf("[memorymanager] failed to get NUMA affinity")
+	if !hint.Preferred {
+		return fmt.Errorf("[memorymanager] failed to get preferred NUMA affinity")
 	}
 
-	affinityBits := hint.NUMANodeAffinity.GetBits()
+	var affinityBits []int
+	if hint.NUMANodeAffinity == nil {
+		if len(p.machineInfo.Topology) > 1 {
+			return fmt.Errorf("[memorymanager] machine has more than one NUMA node, but NUMA affinity is empty")
+		}
+		// Default NUMA node affinity, when the machine has single NUMA node, will be the ID of this NUMA node
+		affinityBits = append(affinityBits, p.machineInfo.Topology[0].Id)
+	} else {
+		affinityBits = hint.NUMANodeAffinity.GetBits()
+	}
+
 	if len(affinityBits) > 1 {
 		return fmt.Errorf("[memorymanager] NUMA affinity has more than one NUMA node")
 	}
@@ -114,15 +121,17 @@ func (p *singleNUMAPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Co
 			continue
 		}
 
-		nodeResourceState := machineState[affinityBits[0]][resourceName]
 		size, succeed := q.AsInt64()
 		if !succeed {
 			return fmt.Errorf("[memorymanager] failed to represent quantity as int64")
 		}
 
+		// update the machine state
+		nodeResourceState := machineState[affinityBits[0]][resourceName]
 		nodeResourceState.Reserved += uint64(size)
 		nodeResourceState.Free -= uint64(size)
 
+		// update memory blocks
 		containerBlocks = append(containerBlocks, state.Block{
 			NUMAAffinity: affinityBits[0],
 			Size:         uint64(size),
@@ -241,7 +250,7 @@ func (p *singleNUMAPolicy) validateState(s state.State) error {
 		for _, node := range p.machineInfo.Topology {
 			// fill memory table with regular memory values
 			allocatable := node.Memory - p.systemReserved[node.Id][v1.ResourceMemory]
-			machineState[node.Id] = map[v1.ResourceName]state.MemoryTable{
+			machineState[node.Id] = map[v1.ResourceName]*state.MemoryTable{
 				v1.ResourceMemory: {
 					Allocatable:    allocatable,
 					Free:           allocatable,
@@ -256,7 +265,7 @@ func (p *singleNUMAPolicy) validateState(s state.State) error {
 				hugepageQuantity := resource.NewQuantity(int64(hugepage.PageSize)*1024, resource.BinarySI)
 				resourceName := corehelper.HugePageResourceName(*hugepageQuantity)
 				// TODO: once it will be possible to reserve huge pages for system usage, we should update values
-				machineState[node.Id][resourceName] = state.MemoryTable{
+				machineState[node.Id][resourceName] = &state.MemoryTable{
 					TotalMemSize:   hugepage.NumPages,
 					SystemReserved: 0,
 					Allocatable:    hugepage.NumPages,
@@ -305,7 +314,7 @@ func (p *singleNUMAPolicy) validateState(s state.State) error {
 		}
 
 		for _, hugepage := range node.HugePages {
-			hugepageQuantity := resource.NewQuantity(int64(hugepage.PageSize), resource.BinarySI)
+			hugepageQuantity := resource.NewQuantity(int64(hugepage.PageSize)*1024, resource.BinarySI)
 			resourceName := corehelper.HugePageResourceName(*hugepageQuantity)
 
 			// validated that machine state memory values equals to node values
@@ -323,7 +332,7 @@ func (p *singleNUMAPolicy) validateState(s state.State) error {
 	return nil
 }
 
-func (p *singleNUMAPolicy) validateResourceMemory(node *cadvisorapi.Node, expectedTotal uint64, machineMemory map[v1.ResourceName]state.MemoryTable, resourceName v1.ResourceName) error {
+func (p *singleNUMAPolicy) validateResourceMemory(node *cadvisorapi.Node, expectedTotal uint64, machineMemory map[v1.ResourceName]*state.MemoryTable, resourceName v1.ResourceName) error {
 	resourceSize, ok := machineMemory[resourceName]
 	if !ok {
 		return fmt.Errorf("[memorymanager] machine state does not have resource %s", resourceName)
@@ -339,7 +348,7 @@ func (p *singleNUMAPolicy) validateResourceMemory(node *cadvisorapi.Node, expect
 	return nil
 }
 
-func (p *singleNUMAPolicy) validateResourceReservedMemory(assignmentsMemory map[v1.ResourceName]uint64, machineMemory map[v1.ResourceName]state.MemoryTable, resourceName v1.ResourceName) error {
+func (p *singleNUMAPolicy) validateResourceReservedMemory(assignmentsMemory map[v1.ResourceName]uint64, machineMemory map[v1.ResourceName]*state.MemoryTable, resourceName v1.ResourceName) error {
 	if assignmentsMemory[resourceName] != machineMemory[resourceName].Reserved {
 		return fmt.Errorf("[memorymanager] memory reserved by containers different from the machine state reserved")
 	}

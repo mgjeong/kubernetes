@@ -14,7 +14,7 @@ go_library(
     deps = [
         "//pkg/apis/core/v1/helper:go_default_library",
         "//pkg/apis/core/v1/helper/qos:go_default_library",
-        "//pkg/kubelet/cm/cpumanager/containermap:go_default_library",
+        "//pkg/kubelet/cm/containermap:go_default_library",
         "//pkg/kubelet/cm/memorymanager/state:go_default_library",
         "//pkg/kubelet/cm/topologymanager:go_default_library",
         "//pkg/kubelet/cm/topologymanager/bitmask:go_default_library",

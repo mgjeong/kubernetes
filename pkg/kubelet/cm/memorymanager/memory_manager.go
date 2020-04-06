@@ -184,6 +184,7 @@ func (m *manager) AddContainer(pod *v1.Pod, container *v1.Container, containerID
 	}
 
 	affinity := strings.Join(nodes, ",")
+	klog.Info("[memorymanager] Set container %q cpuset.mems to %q", containerID, affinity)
 	err := m.containerRuntime.UpdateContainerResources(containerID, &runtimeapi.LinuxContainerResources{CpusetMems: affinity})
 	if err != nil {
 		klog.Errorf("[memorymanager] AddContainer error: error updating cpuset.mems for container (pod: %s, container: %s, container id: %s, err: %v)", pod.Name, container.Name, containerID, err)

@@ -17,7 +17,6 @@ limitations under the License.
 package topologymanager
 
 import (
-	"k8s.io/klog"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 )
 
@@ -67,12 +66,9 @@ func filterSingleNumaHints(allResourcesHints [][]TopologyHint) [][]TopologyHint 
 
 func (p *singleNumaNodePolicy) Merge(providersHints []map[string][]TopologyHint) (TopologyHint, bool) {
 	filteredHints := filterProvidersHints(providersHints)
-	klog.Infof("[topologymanager] Filtered hints: %v", filteredHints)
 	// Filter to only include don't cares and hints with a single NUMA node.
 	singleNumaHints := filterSingleNumaHints(filteredHints)
-	klog.Infof("[topologymanager] single NUMA hints: %v", filteredHints)
 	bestHint := mergeFilteredHints(p.numaNodes, singleNumaHints)
-	klog.Infof("[topologymanager] Best hints: %v", filteredHints)
 
 	defaultAffinity, _ := bitmask.NewBitMask(p.numaNodes...)
 	if bestHint.NUMANodeAffinity.IsEqual(defaultAffinity) {

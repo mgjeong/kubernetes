@@ -19,6 +19,7 @@ package memorymanager
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 
 	cadvisorapi "github.com/google/cadvisor/info/v1"
@@ -26,7 +27,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 	"k8s.io/klog"
-	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/containermap"
+	"k8s.io/kubernetes/pkg/kubelet/cm/containermap"
 	"k8s.io/kubernetes/pkg/kubelet/cm/memorymanager/state"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
 	"k8s.io/kubernetes/pkg/kubelet/config"
@@ -125,8 +126,11 @@ func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAll
 		policy = NewPolicyNone()
 
 	case policyTypeSingleNUMA:
-		// TODO: need to provide additional fields, to select NUMA nodes with enough memory
-		policy = NewPolicySingleNUMA()
+		reserved, err := getReservedMemory(machineInfo, nodeAllocatableReservation)
+		if err != nil {
+			return nil, err
+		}
+		policy = NewPolicySingleNUMA(machineInfo, reserved, affinity)
 
 	default:
 		return nil, fmt.Errorf("unknown policy: \"%s\"", policyName)
@@ -168,29 +172,31 @@ func (m *manager) Start(activePods ActivePodsFunc, sourcesReady config.SourcesRe
 
 // AddContainer saves the value of requested memory for the guaranteed pod under the state and set memory affinity according to the topolgy manager
 func (m *manager) AddContainer(pod *v1.Pod, container *v1.Container, containerID string) error {
-	// Get memory blocks assigned to the container during Allocate()
-	blocks := m.state.GetMemoryBlocks(string(pod.UID), container.Name)
-
-	if len(blocks) > 0 {
-		// it does not possible that memory blocks under the same container will have different NUMA affinity,
-		// so we get NUMA node from the first memory block
-		numaNode := strconv.Itoa(blocks[0].NUMAAffinity)
-		err := m.containerRuntime.UpdateContainerResources(containerID, &runtimeapi.LinuxContainerResources{CpusetMems: numaNode})
-		if err != nil {
-			klog.Errorf("[memorymanager] AddContainer error: error updating cpuset.mems for container (pod: %s, container: %s, container id: %s, err: %v)", pod.Name, container.Name, containerID, err)
-
-			m.Lock()
-			err = m.policyRemoveContainerByRef(string(pod.UID), container.Name)
-			if err != nil {
-				klog.Errorf("[memorymanager] AddContainer rollback state error: %v", err)
-			}
-			m.Unlock()
-		}
-		return err
+	// Get NUMA node affinity of blocks assigned to the container during Allocate()
+	var nodes []string
+	for _, block := range m.state.GetMemoryBlocks(string(pod.UID), container.Name) {
+		nodes = append(nodes, strconv.Itoa(block.NUMAAffinity))
 	}
 
-	klog.V(5).Infof("[memorymanager] update container resources is skipped due to memory blocks are empty")
-	return nil
+	if len(nodes) < 1 {
+		klog.V(5).Infof("[memorymanager] update container resources is skipped due to memory blocks are empty")
+		return nil
+	}
+
+	affinity := strings.Join(nodes, ",")
+	klog.Info("[memorymanager] Set container %q cpuset.mems to %q", containerID, affinity)
+	err := m.containerRuntime.UpdateContainerResources(containerID, &runtimeapi.LinuxContainerResources{CpusetMems: affinity})
+	if err != nil {
+		klog.Errorf("[memorymanager] AddContainer error: error updating cpuset.mems for container (pod: %s, container: %s, container id: %s, err: %v)", pod.Name, container.Name, containerID, err)
+
+		m.Lock()
+		err = m.policyRemoveContainerByRef(string(pod.UID), container.Name)
+		if err != nil {
+			klog.Errorf("[memorymanager] AddContainer rollback state error: %v", err)
+		}
+		m.Unlock()
+	}
+	return err
 }
 
 // Allocate is called to pre-allocate memory resources during Pod admission.
@@ -293,4 +299,26 @@ func (m *manager) policyRemoveContainerByRef(podUID string, containerName string
 	}
 
 	return err
+}
+
+func getReservedMemory(machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList) (reservedMemory, error) {
+	// TODO: we should add new kubelet parameter, and to get reserved memory per NUMA node from it
+	// currently we use kube-reserved + system-reserved + eviction reserve for each NUMA node, that creates memory over-consumption
+	// and no reservation for huge pages
+	reserved := reservedMemory{}
+	for _, node := range machineInfo.Topology {
+		memory := nodeAllocatableReservation[v1.ResourceMemory]
+		if memory.IsZero() {
+			break
+		}
+		value, succeeded := memory.AsInt64()
+		if !succeeded {
+			return nil, fmt.Errorf("failed to represent reserved memory as int64")
+		}
+
+		reserved[node.Id] = map[v1.ResourceName]uint64{
+			v1.ResourceMemory: uint64(value),
+		}
+	}
+	return reserved, nil
 }

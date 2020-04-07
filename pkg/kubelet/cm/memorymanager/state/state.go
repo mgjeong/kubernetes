@@ -17,7 +17,7 @@ limitations under the License.
 package state
 
 import (
-	"k8s.io/kubernetes/pkg/apis/core"
+	v1 "k8s.io/api/core/v1"
 )
 
 // MemoryTable contains memory information
@@ -30,15 +30,15 @@ type MemoryTable struct {
 }
 
 // MemoryMap contains memory information for each NUMA node.
-type MemoryMap map[uint64]map[core.ResourceName]MemoryTable
+type MemoryMap map[int]map[v1.ResourceName]*MemoryTable
 
 // Clone returns a copy of MemoryMap
 func (mm MemoryMap) Clone() MemoryMap {
 	clone := make(MemoryMap)
 	for node, memory := range mm {
-		clone[node] = map[core.ResourceName]MemoryTable{}
+		clone[node] = map[v1.ResourceName]*MemoryTable{}
 		for memoryType, memoryTable := range memory {
-			clone[node][memoryType] = MemoryTable{
+			clone[node][memoryType] = &MemoryTable{
 				Allocatable:    memoryTable.Allocatable,
 				Free:           memoryTable.Free,
 				Reserved:       memoryTable.Reserved,
@@ -52,9 +52,9 @@ func (mm MemoryMap) Clone() MemoryMap {
 
 // Block is a data structure used to represent a certain amount of memory
 type Block struct {
-	NUMAAffinity int               `json:"numaAffinity"`
-	Type         core.ResourceName `json:"type"`
-	Size         uint64            `json:"size"`
+	NUMAAffinity int             `json:"numaAffinity"`
+	Type         v1.ResourceName `json:"type"`
+	Size         uint64          `json:"size"`
 }
 
 // ContainerMemoryAssignments stores memory assignments of containers

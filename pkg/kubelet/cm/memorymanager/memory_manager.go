@@ -172,6 +172,10 @@ func (m *manager) Start(activePods ActivePodsFunc, sourcesReady config.SourcesRe
 
 // AddContainer saves the value of requested memory for the guaranteed pod under the state and set memory affinity according to the topolgy manager
 func (m *manager) AddContainer(pod *v1.Pod, container *v1.Container, containerID string) error {
+	m.Lock()
+	m.containerMap.Add(string(pod.UID), container.Name, containerID)
+	m.Unlock()
+
 	// Get NUMA node affinity of blocks assigned to the container during Allocate()
 	var nodes []string
 	for _, block := range m.state.GetMemoryBlocks(string(pod.UID), container.Name) {
@@ -205,9 +209,9 @@ func (m *manager) Allocate(pod *v1.Pod, container *v1.Container) error {
 
 	m.Lock()
 	defer m.Unlock()
+
 	// Call down into the policy to assign this container memory if required.
-	err := m.policy.Allocate(m.state, pod, container)
-	if err != nil {
+	if err := m.policy.Allocate(m.state, pod, container); err != nil {
 		klog.Errorf("[memorymanager] Allocate error: %v", err)
 		return err
 	}
@@ -222,6 +226,7 @@ func (m *manager) RemoveContainer(containerID string) error {
 	// if error appears it means container entry already does not exist under the container map
 	podUID, containerName, err := m.containerMap.GetContainerRef(containerID)
 	if err != nil {
+		klog.Warningf("[memorymanager] Failed to get container %s from container map error: %v", containerID, err)
 		return nil
 	}
 

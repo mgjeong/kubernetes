@@ -283,13 +283,11 @@ func (p *singleNUMAPolicy) validateState(s state.State) error {
 	for _, container := range memoryAssignments {
 		for _, blocks := range container {
 			for _, b := range blocks {
-				_, ok := assignmentsMemory[b.NUMAAffinity]
-				if !ok {
+				if _, ok := assignmentsMemory[b.NUMAAffinity]; !ok {
 					assignmentsMemory[b.NUMAAffinity] = map[v1.ResourceName]uint64{}
 				}
 
-				_, ok = assignmentsMemory[b.NUMAAffinity][b.Type]
-				if !ok {
+				if _, ok := assignmentsMemory[b.NUMAAffinity][b.Type]; !ok {
 					assignmentsMemory[b.NUMAAffinity][b.Type] = 0
 				}
 				assignmentsMemory[b.NUMAAffinity][b.Type] += b.Size

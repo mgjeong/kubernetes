@@ -69,6 +69,7 @@ import (
 	"k8s.io/kubernetes/cmd/kubelet/app/options"
 	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	api "k8s.io/kubernetes/pkg/apis/core"
+	corev1helper "k8s.io/kubernetes/pkg/apis/core/v1/helper"
 	"k8s.io/kubernetes/pkg/capabilities"
 	"k8s.io/kubernetes/pkg/credentialprovider"
 	"k8s.io/kubernetes/pkg/features"
@@ -688,6 +689,12 @@ func run(s *options.KubeletServer, kubeDeps *kubelet.Dependencies, featureGate f
 			s.SystemReserved["cpu"] = strconv.Itoa(reservedSystemCPUs.Size())
 			klog.Infof("After cpu setting is overwritten, KubeReserved=\"%v\", SystemReserved=\"%v\"", s.KubeReserved, s.SystemReserved)
 		}
+
+		preReservedMemoryZone, err:= parsePreReservedMemoryConfig(s.PreReservedMemoryZone)
+		if err != nil {
+			return err
+		}
+
 		kubeReserved, err := parseResourceList(s.KubeReserved)
 		if err != nil {
 			return err
@@ -733,14 +740,15 @@ func run(s *options.KubeletServer, kubeDeps *kubelet.Dependencies, featureGate f
 					ReservedSystemCPUs:       reservedSystemCPUs,
 					HardEvictionThresholds:   hardEvictionThresholds,
 				},
-				QOSReserved:                           *experimentalQOSReserved,
-				ExperimentalCPUManagerPolicy:          s.CPUManagerPolicy,
-				ExperimentalCPUManagerReconcilePeriod: s.CPUManagerReconcilePeriod.Duration,
-				ExperimentalMemoryManagerPolicy:       s.MemoryManagerPolicy,
-				ExperimentalPodPidsLimit:              s.PodPidsLimit,
-				EnforceCPULimits:                      s.CPUCFSQuota,
-				CPUCFSQuotaPeriod:                     s.CPUCFSQuotaPeriod.Duration,
-				ExperimentalTopologyManagerPolicy:     s.TopologyManagerPolicy,
+				QOSReserved:                                 *experimentalQOSReserved,
+				ExperimentalCPUManagerPolicy:                s.CPUManagerPolicy,
+				ExperimentalCPUManagerReconcilePeriod:       s.CPUManagerReconcilePeriod.Duration,
+				ExperimentalMemoryManagerPolicy:             s.MemoryManagerPolicy,
+				ExperimentalMemoryManagerPreReservedMemory:  preReservedMemoryZone,
+				ExperimentalPodPidsLimit:                    s.PodPidsLimit,
+				EnforceCPULimits:                            s.CPUCFSQuota,
+				CPUCFSQuotaPeriod:                           s.CPUCFSQuotaPeriod.Duration,
+				ExperimentalTopologyManagerPolicy:           s.TopologyManagerPolicy,
 			},
 			s.FailSwapOn,
 			devicePluginEnabled,
@@ -1242,6 +1250,55 @@ func parseResourceList(m map[string]string) (v1.ResourceList, error) {
 	}
 	return rl, nil
 }
+
+func parsePreReservedMemoryConfig(config []map[string]string) (map[int]map[v1.ResourceName]uint64, error) {
+	if len(config) == 0 {
+		return nil, nil
+	}
+
+	const (
+		indexKey = "numa-node"
+		typeKkey = "memory-type"
+		limitKey = "limit"
+	)
+
+	keys := []string{indexKey, typeKkey, limitKey}
+
+	// check key first
+	for _, m := range config {
+		for _, key := range keys {
+			if _, exist := m[key]; !exist {
+				return nil, fmt.Errorf("key: %s is missing in given PreReservedMemoryZone flag: %v", key, config)
+			}
+		}
+	}
+
+	parsed := make(map[int]map[v1.ResourceName]uint64, len(config))
+	for _, m := range config {
+		idxInString, _ := m["numa-node"]
+		idx, err := strconv.Atoi(idxInString)
+		if err != nil || idx < 0  {
+			return nil, fmt.Errorf("index conversion error")
+		}
+
+		typeInString, _ := m["memory-type"]
+		v1Type := v1.ResourceName(typeInString)
+		if v1Type != v1.ResourceMemory && !corev1helper.IsHugePageResourceName(v1Type) {
+			return nil, fmt.Errorf("type conversion error")
+		}
+
+		limitInString, _ := m["limit"]
+		limit, err := strconv.Atoi(limitInString)
+		if err != nil || limit < 0  {
+			return nil, fmt.Errorf("limit conversion error")
+		}
+
+		parsed[idx][v1Type] = uint64(limit)
+	}
+
+	return parsed, nil
+}
+
 
 // BootstrapKubeletConfigController constructs and bootstrap a configuration controller
 func BootstrapKubeletConfigController(dynamicConfigDir string, transform dynamickubeletconfig.TransformFunc) (*kubeletconfiginternal.KubeletConfiguration, *dynamickubeletconfig.Controller, error) {

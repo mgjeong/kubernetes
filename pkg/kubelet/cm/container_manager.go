@@ -128,14 +128,15 @@ type NodeConfig struct {
 	KubeletRootDir        string
 	ProtectKernelDefaults bool
 	NodeAllocatableConfig
-	QOSReserved                           map[v1.ResourceName]int64
-	ExperimentalCPUManagerPolicy          string
-	ExperimentalCPUManagerReconcilePeriod time.Duration
-	ExperimentalMemoryManagerPolicy       string
-	ExperimentalPodPidsLimit              int64
-	EnforceCPULimits                      bool
-	CPUCFSQuotaPeriod                     time.Duration
-	ExperimentalTopologyManagerPolicy     string
+	QOSReserved                                 map[v1.ResourceName]int64
+	ExperimentalCPUManagerPolicy                string
+	ExperimentalCPUManagerReconcilePeriod       time.Duration
+	ExperimentalMemoryManagerPolicy             string
+	ExperimentalMemoryManagerPreReservedMemory  map[int]map[v1.ResourceName]uint64
+	ExperimentalPodPidsLimit                    int64
+	EnforceCPULimits                            bool
+	CPUCFSQuotaPeriod                           time.Duration
+	ExperimentalTopologyManagerPolicy           string
 }
 
 type NodeAllocatableConfig struct {

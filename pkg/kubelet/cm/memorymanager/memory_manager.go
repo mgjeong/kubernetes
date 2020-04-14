@@ -117,7 +117,7 @@ type manager struct {
 var _ Manager = &manager{}
 
 // NewManager returns new instance of the memory manager
-func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, stateFileDirectory string, affinity topologymanager.Store) (Manager, error) {
+func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, preReservedMemory map[int]map[v1.ResourceName]uint64, stateFileDirectory string, affinity topologymanager.Store) (Manager, error) {
 	var policy Policy
 
 	switch policyType(policyName) {
@@ -126,7 +126,7 @@ func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAll
 		policy = NewPolicyNone()
 
 	case policyTypeSingleNUMA:
-		reserved, err := getReservedMemory(machineInfo, nodeAllocatableReservation)
+		reserved, err := getReservedMemory(machineInfo, nodeAllocatableReservation, preReservedMemory)
 		if err != nil {
 			return nil, err
 		}
@@ -301,10 +301,21 @@ func (m *manager) policyRemoveContainerByRef(podUID string, containerName string
 	return err
 }
 
-func getReservedMemory(machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList) (reservedMemory, error) {
+func validatePreReservedMemory(nodeAllocatableReservation v1.ResourceList, preReservedMemory map[int]map[v1.ResourceName]uint64) error {
+	// TODO: this will check equality of total reserved memory by node allocatable feature and total pre-reserved memory
+
+	return nil
+}
+
+func getReservedMemory(machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, preReservedMemory map[int]map[v1.ResourceName]uint64) (reservedMemory, error) {
 	// TODO: we should add new kubelet parameter, and to get reserved memory per NUMA node from it
 	// currently we use kube-reserved + system-reserved + eviction reserve for each NUMA node, that creates memory over-consumption
 	// and no reservation for huge pages
+
+	if err := validatePreReservedMemory(nodeAllocatableReservation, preReservedMemory); err != nil {
+		return nil, err
+	}
+
 	reserved := reservedMemory{}
 	for _, node := range machineInfo.Topology {
 		memory := nodeAllocatableReservation[v1.ResourceMemory]

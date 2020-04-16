@@ -94,17 +94,13 @@ func (p *singleNUMAPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Co
 	hint := p.affinity.GetAffinity(string(pod.UID), container.Name)
 	klog.Infof("[memorymanager] Pod %v, Container %v Topology Affinity is: %v", pod.UID, container.Name, hint)
 
-	if !hint.Preferred {
-		return fmt.Errorf("[memorymanager] failed to get preferred NUMA affinity")
-	}
-
 	var affinityBits []int
-	if hint.NUMANodeAffinity == nil {
-		if len(p.machineInfo.Topology) > 1 {
-			return fmt.Errorf("[memorymanager] machine has more than one NUMA node, but NUMA affinity is empty")
+	if !hint.Preferred || hint.NUMANodeAffinity == nil {
+		defaultAffinity, err := getDefaultNUMAAffinity(s, container)
+		if err != nil {
+			return err
 		}
-		// Default NUMA node affinity, when the machine has single NUMA node, will be the ID of this NUMA node
-		affinityBits = append(affinityBits, p.machineInfo.Topology[0].Id)
+		affinityBits = defaultAffinity.GetBits()
 	} else {
 		affinityBits = hint.NUMANodeAffinity.GetBits()
 	}
@@ -351,4 +347,38 @@ func (p *singleNUMAPolicy) validateResourceReservedMemory(assignmentsMemory map[
 		return fmt.Errorf("[memorymanager] memory reserved by containers different from the machine state reserved")
 	}
 	return nil
+}
+
+func getDefaultNUMAAffinity(s state.State, container *v1.Container) (bitmask.BitMask, error) {
+	machineState := s.GetMachineState()
+
+	var nodeID = -1
+	for id, memoryState := range machineState {
+		for resourceName, q := range container.Resources.Requests {
+			if resourceName != v1.ResourceMemory && !corehelper.IsHugePageResourceName(resourceName) {
+				continue
+			}
+
+			size, succeed := q.AsInt64()
+			if !succeed {
+				return nil, fmt.Errorf("[memorymanager] failed to represent quantity as int64")
+			}
+
+			resourceState := memoryState[resourceName]
+			if resourceState.Free < uint64(size) {
+				nodeID = -1
+				break
+			}
+			nodeID = id
+		}
+
+		if nodeID != -1 {
+			defaultNUMAAffinity, err := bitmask.NewBitMask(nodeID)
+			if err != nil {
+				return nil, err
+			}
+			return defaultNUMAAffinity, nil
+		}
+	}
+	return nil, fmt.Errorf("[memorymanager] failed to get the default NUMA affinity, no NUMA nodes with enough memory is available")
 }

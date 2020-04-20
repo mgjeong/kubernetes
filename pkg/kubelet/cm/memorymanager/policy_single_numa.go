@@ -262,11 +262,11 @@ func (p *singleNUMAPolicy) validateState(s state.State) error {
 				resourceName := corehelper.HugePageResourceName(*hugepageQuantity)
 				// TODO: once it will be possible to reserve huge pages for system usage, we should update values
 				machineState[node.Id][resourceName] = &state.MemoryTable{
-					TotalMemSize:   hugepage.NumPages,
+					TotalMemSize:   hugepage.NumPages * hugepage.PageSize * 1024,
 					SystemReserved: 0,
-					Allocatable:    hugepage.NumPages,
+					Allocatable:    hugepage.NumPages * hugepage.PageSize * 1024,
 					Reserved:       0,
-					Free:           hugepage.NumPages,
+					Free:           hugepage.NumPages * hugepage.PageSize * 1024,
 				}
 			}
 		}
@@ -310,14 +310,15 @@ func (p *singleNUMAPolicy) validateState(s state.State) error {
 		for _, hugepage := range node.HugePages {
 			hugepageQuantity := resource.NewQuantity(int64(hugepage.PageSize)*1024, resource.BinarySI)
 			resourceName := corehelper.HugePageResourceName(*hugepageQuantity)
+			expectedTotal := hugepage.NumPages * hugepage.PageSize * 1024
 
 			// validated that machine state memory values equals to node values
-			if err := p.validateResourceMemory(&node, hugepage.NumPages, machineMemory, resourceName); err != nil {
+			if err := p.validateResourceMemory(&node, expectedTotal, machineMemory, resourceName); err != nil {
 				return err
 			}
 
 			// validate that memory assigned to containers equals to reserved one under the machine state
-			if err := p.validateResourceReservedMemory(assignmentsMemory[node.Id], machineMemory, v1.ResourceMemory); err != nil {
+			if err := p.validateResourceReservedMemory(assignmentsMemory[node.Id], machineMemory, resourceName); err != nil {
 				return err
 			}
 		}
@@ -344,7 +345,7 @@ func (p *singleNUMAPolicy) validateResourceMemory(node *cadvisorapi.Node, expect
 
 func (p *singleNUMAPolicy) validateResourceReservedMemory(assignmentsMemory map[v1.ResourceName]uint64, machineMemory map[v1.ResourceName]*state.MemoryTable, resourceName v1.ResourceName) error {
 	if assignmentsMemory[resourceName] != machineMemory[resourceName].Reserved {
-		return fmt.Errorf("[memorymanager] memory reserved by containers different from the machine state reserved")
+		return fmt.Errorf("[memorymanager] %s reserved by containers different from the machine state reserved", resourceName)
 	}
 	return nil
 }

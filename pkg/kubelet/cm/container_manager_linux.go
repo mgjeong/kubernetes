@@ -348,6 +348,7 @@ func NewContainerManager(mountUtil mount.Interface, cadvisorInterface cadvisor.I
 			nodeConfig.ExperimentalMemoryManagerPolicy,
 			machineInfo,
 			cm.GetNodeAllocatableReservation(),
+			nodeConfig.ExperimentalMemoryManagerPreReservedMemory,
 			nodeConfig.KubeletRootDir,
 			cm.topologyManager,
 		)

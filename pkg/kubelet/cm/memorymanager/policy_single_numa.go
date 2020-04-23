@@ -127,7 +127,7 @@ func (p *singleNUMAPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Co
 
 		// update memory blocks
 		containerBlocks = append(containerBlocks, state.Block{
-			NUMAAffinity: affinityBits[0],
+			NUMAAffinity: affinityBits,
 			Size:         uint64(size),
 			Type:         resourceName,
 		})
@@ -152,9 +152,11 @@ func (p *singleNUMAPolicy) RemoveContainer(s state.State, podUID string, contain
 	// Mutate machine memory state to update free and reserved memory
 	machineState := s.GetMachineState()
 	for _, b := range blocks {
-		nodeResourceMemoryState := machineState[b.NUMAAffinity].MemoryMap[b.Type]
-		nodeResourceMemoryState.Free += b.Size
-		nodeResourceMemoryState.Reserved -= b.Size
+		for _, nodeId := range b.NUMAAffinity {
+			nodeResourceMemoryState := machineState[nodeId].MemoryMap[b.Type]
+			nodeResourceMemoryState.Free += b.Size
+			nodeResourceMemoryState.Reserved -= b.Size
+		}
 	}
 	s.SetMachineState(machineState)
 
@@ -199,7 +201,7 @@ func (p *singleNUMAPolicy) GetTopologyHints(s state.State, pod *v1.Pod, containe
 					return nil
 				}
 
-				containerNUMAAffinity, err := bitmask.NewBitMask(b.NUMAAffinity)
+				containerNUMAAffinity, err := bitmask.NewBitMask(b.NUMAAffinity...)
 				if err != nil {
 					klog.Errorf("[memorymanager] failed to generate NUMA bitmask: %v", err)
 					return nil
@@ -281,14 +283,16 @@ func (p *singleNUMAPolicy) validateState(s state.State) error {
 	for _, container := range memoryAssignments {
 		for _, blocks := range container {
 			for _, b := range blocks {
-				if _, ok := assignmentsMemory[b.NUMAAffinity]; !ok {
-					assignmentsMemory[b.NUMAAffinity] = map[v1.ResourceName]uint64{}
-				}
+				for _, nodeId := range b.NUMAAffinity {
+					if _, ok := assignmentsMemory[nodeId]; !ok {
+						assignmentsMemory[nodeId] = map[v1.ResourceName]uint64{}
+					}
 
-				if _, ok := assignmentsMemory[b.NUMAAffinity][b.Type]; !ok {
-					assignmentsMemory[b.NUMAAffinity][b.Type] = 0
+					if _, ok := assignmentsMemory[nodeId][b.Type]; !ok {
+						assignmentsMemory[nodeId][b.Type] = 0
+					}
+					assignmentsMemory[nodeId][b.Type] += b.Size
 				}
-				assignmentsMemory[b.NUMAAffinity][b.Type] += b.Size
 			}
 		}
 	}

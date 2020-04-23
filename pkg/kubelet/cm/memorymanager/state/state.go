@@ -76,7 +76,8 @@ func (nm NodeMap) Clone() NodeMap {
 
 // Block is a data structure used to represent a certain amount of memory
 type Block struct {
-	NUMAAffinity int             `json:"numaAffinity"`
+	// NUMAAffinity contains the string that represents NUMA affinity bitmask
+	NUMAAffinity []int           `json:"numaAffinity"`
 	Type         v1.ResourceName `json:"type"`
 	Size         uint64          `json:"size"`
 }

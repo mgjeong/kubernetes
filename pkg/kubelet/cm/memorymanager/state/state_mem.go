@@ -25,7 +25,7 @@ import (
 type stateMemory struct {
 	sync.RWMutex
 	assignments  ContainerMemoryAssignments
-	machineState MemoryMap
+	machineState NodeMap
 }
 
 var _ State = &stateMemory{}
@@ -35,12 +35,12 @@ func NewMemoryState() State {
 	klog.Infof("[memorymanager] initializing new in-memory state store")
 	return &stateMemory{
 		assignments:  ContainerMemoryAssignments{},
-		machineState: MemoryMap{},
+		machineState: NodeMap{},
 	}
 }
 
 // GetMemoryState returns Memory Map stored in the State
-func (s *stateMemory) GetMachineState() MemoryMap {
+func (s *stateMemory) GetMachineState() NodeMap {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -66,12 +66,12 @@ func (s *stateMemory) GetMemoryAssignments() ContainerMemoryAssignments {
 	return s.assignments.Clone()
 }
 
-// SetMachineState stores MemoryMap in State
-func (s *stateMemory) SetMachineState(memoryMap MemoryMap) {
+// SetMachineState stores NodeMap in State
+func (s *stateMemory) SetMachineState(nodeMap NodeMap) {
 	s.Lock()
 	defer s.Unlock()
 
-	s.machineState = memoryMap
+	s.machineState = nodeMap
 	klog.Info("[memorymanager] updated machine memory state")
 }
 
@@ -121,7 +121,7 @@ func (s *stateMemory) ClearState() {
 	s.Lock()
 	defer s.Unlock()
 
-	s.machineState = MemoryMap{}
+	s.machineState = NodeMap{}
 	s.assignments = make(ContainerMemoryAssignments)
 	klog.V(2).Infof("[memorymanager] cleared state")
 }

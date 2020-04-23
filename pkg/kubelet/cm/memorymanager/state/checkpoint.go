@@ -28,7 +28,7 @@ var _ checkpointmanager.Checkpoint = &MemoryManagerCheckpoint{}
 // MemoryManagerCheckpoint struct is used to store memory/pod assignments in a checkpoint
 type MemoryManagerCheckpoint struct {
 	PolicyName   string                     `json:"policyName"`
-	MachineState MemoryMap                  `json:"machineState"`
+	MachineState NodeMap                    `json:"machineState"`
 	Entries      ContainerMemoryAssignments `json:"entries,omitempty"`
 	Checksum     checksum.Checksum          `json:"checksum"`
 }
@@ -38,7 +38,7 @@ func NewMemoryManagerCheckpoint() *MemoryManagerCheckpoint {
 	//lint:ignore unexported-type-in-api user-facing error message
 	return &MemoryManagerCheckpoint{
 		Entries:      ContainerMemoryAssignments{},
-		MachineState: MemoryMap{},
+		MachineState: NodeMap{},
 	}
 }
 

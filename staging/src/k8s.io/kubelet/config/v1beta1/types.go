@@ -765,7 +765,7 @@ type KubeletConfiguration struct {
 	// Default: []
 	// +optional
 	AllowedUnsafeSysctls []string `json:"allowedUnsafeSysctls,omitempty"`
-	// A braket separated list of configuration for mamory manager.
+	// A comma separated list of bracket-enclosed configurations for memory manager.
 	// Each configuration describes pre-reserved memory for the certain memory type on a specific NUMA node.
 	// The Memory Manager validates whether total amount of pre-reserved memory is identical to reserved-memory by the Node Allocatable feature.
 	// The format is {numa-node=integer, memory-type=string, limit=string}

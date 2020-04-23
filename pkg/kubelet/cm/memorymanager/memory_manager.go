@@ -181,7 +181,9 @@ func (m *manager) AddContainer(pod *v1.Pod, container *v1.Container, containerID
 	// Get NUMA node affinity of blocks assigned to the container during Allocate()
 	var nodes []string
 	for _, block := range m.state.GetMemoryBlocks(string(pod.UID), container.Name) {
-		nodes = append(nodes, strconv.Itoa(block.NUMAAffinity))
+		for _, nodeID := range block.NUMAAffinity {
+			nodes = append(nodes, strconv.Itoa(nodeID))
+		}
 	}
 
 	if len(nodes) < 1 {

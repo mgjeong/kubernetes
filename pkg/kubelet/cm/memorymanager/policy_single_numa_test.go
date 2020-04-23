@@ -141,7 +141,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 				"pod": map[string][]state.Block{
 					"container1": {
 						{
-							NUMAAffinity: 0,
+							NUMAAffinity: []int{0},
 							Type:         v1.ResourceMemory,
 							Size:         512 * mb,
 						},
@@ -366,7 +366,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 				"pod": map[string][]state.Block{
 					"container1": {
 						{
-							NUMAAffinity: 0,
+							NUMAAffinity: []int{0},
 							Type:         v1.ResourceMemory,
 							Size:         512 * mb,
 						},
@@ -505,7 +505,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 				"pod1": map[string][]state.Block{
 					"container1": {
 						{
-							NUMAAffinity: 0,
+							NUMAAffinity: []int{0},
 							Type:         hugepages1Gi,
 							Size:         gb,
 						},
@@ -514,7 +514,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 				"pod2": map[string][]state.Block{
 					"container2": {
 						{
-							NUMAAffinity: 0,
+							NUMAAffinity: []int{0},
 							Type:         hugepages1Gi,
 							Size:         gb,
 						},
@@ -653,7 +653,7 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 				"pod1": map[string][]state.Block{
 					"container1": {
 						{
-							NUMAAffinity: 0,
+							NUMAAffinity: []int{0},
 							Type:         v1.ResourceMemory,
 							Size:         gb,
 						},
@@ -664,7 +664,7 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 				"pod1": map[string][]state.Block{
 					"container1": {
 						{
-							NUMAAffinity: 0,
+							NUMAAffinity: []int{0},
 							Type:         v1.ResourceMemory,
 							Size:         gb,
 						},
@@ -728,12 +728,12 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 				"pod1": map[string][]state.Block{
 					"container1": {
 						{
-							NUMAAffinity: 0,
+							NUMAAffinity: []int{0},
 							Type:         v1.ResourceMemory,
 							Size:         gb,
 						},
 						{
-							NUMAAffinity: 0,
+							NUMAAffinity: []int{0},
 							Type:         hugepages1Gi,
 							Size:         gb,
 						},
@@ -876,12 +876,12 @@ func TestSingleNUMAPolicyRemoveContainer(t *testing.T) {
 				"pod1": map[string][]state.Block{
 					"container1": {
 						{
-							NUMAAffinity: 0,
+							NUMAAffinity: []int{0},
 							Type:         v1.ResourceMemory,
 							Size:         gb,
 						},
 						{
-							NUMAAffinity: 0,
+							NUMAAffinity: []int{0},
 							Type:         hugepages1Gi,
 							Size:         gb,
 						},
@@ -988,12 +988,12 @@ func TestSingleNUMAPolicyGetTopologyHints(t *testing.T) {
 				"pod1": map[string][]state.Block{
 					"container1": {
 						{
-							NUMAAffinity: 0,
+							NUMAAffinity: []int{0},
 							Type:         v1.ResourceMemory,
 							Size:         gb,
 						},
 						{
-							NUMAAffinity: 0,
+							NUMAAffinity: []int{0},
 							Type:         hugepages1Gi,
 							Size:         gb,
 						},
@@ -1022,12 +1022,12 @@ func TestSingleNUMAPolicyGetTopologyHints(t *testing.T) {
 				"pod1": map[string][]state.Block{
 					"container1": {
 						{
-							NUMAAffinity: 0,
+							NUMAAffinity: []int{0},
 							Type:         v1.ResourceMemory,
 							Size:         gb,
 						},
 						{
-							NUMAAffinity: 0,
+							NUMAAffinity: []int{0},
 							Type:         hugepages1Gi,
 							Size:         gb,
 						},

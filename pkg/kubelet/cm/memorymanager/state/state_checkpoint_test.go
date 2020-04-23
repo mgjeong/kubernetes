@@ -21,8 +21,6 @@ import (
 	"strings"
 	"testing"
 
-	"k8s.io/klog"
-
 	"github.com/stretchr/testify/assert"
 
 	v1 "k8s.io/api/core/v1"
@@ -66,8 +64,8 @@ func TestCheckpointStateRestore(t *testing.T) {
 			`{
 				"policyName":"singleNUMA",
 				"machineState":{"0":{"numberOfAssignments":0,"memoryMap":{"memory":{"total":2048,"systemReserved":512,"allocatable":1536,"reserved":512,"free":1024}},"nodes":[]}},
-				"entries":{"pod":{"container1":[{"numaAffinity":0,"type":"memory","size":512}]}},
-				"checksum": 2903074075
+				"entries":{"pod":{"container1":[{"numaAffinity":[0],"type":"memory","size":512}]}},
+				"checksum": 2568607641
 			}`,
 			containermap.ContainerMap{},
 			"",
@@ -76,7 +74,7 @@ func TestCheckpointStateRestore(t *testing.T) {
 					"pod": map[string][]Block{
 						"container1": {
 							{
-								NUMAAffinity: 0,
+								NUMAAffinity: []int{0},
 								Type:         v1.ResourceMemory,
 								Size:         512,
 							},
@@ -103,7 +101,7 @@ func TestCheckpointStateRestore(t *testing.T) {
 			`{
 				"policyName":"singleNUMA",
 				"machineState":{"0":{"numberOfAssignments":0,"memoryMap":{"memory":{"total":2048,"systemReserved":512,"allocatable":1536,"reserved":512,"free":1024}},"nodes":[]}},
-				"entries":{"pod":{"container1":[{"affinity":0,"type":"memory","size":512}]}},
+				"entries":{"pod":{"container1":[{"affinity":[0],"type":"memory","size":512}]}},
 				"checksum": 101010
 			}`,
 			containermap.ContainerMap{},
@@ -135,9 +133,6 @@ func TestCheckpointStateRestore(t *testing.T) {
 			}
 
 			restoredState, err := NewCheckpointState(testingDir, testingCheckpoint, "singleNUMA", tc.initialContainers)
-			if err != nil {
-				klog.Infof("MYERROR: %v", err)
-			}
 			if strings.TrimSpace(tc.expectedError) != "" {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), "could not restore state from checkpoint: "+tc.expectedError)
@@ -156,7 +151,7 @@ func TestCheckpointStateStore(t *testing.T) {
 			"pod": map[string][]Block{
 				"container1": {
 					{
-						NUMAAffinity: 0,
+						NUMAAffinity: []int{0},
 						Type:         v1.ResourceMemory,
 						Size:         1024,
 					},
@@ -209,7 +204,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 				"pod": map[string][]Block{
 					"container1": {
 						{
-							NUMAAffinity: 0,
+							NUMAAffinity: []int{0},
 							Type:         v1.ResourceMemory,
 							Size:         1024,
 						},
@@ -237,14 +232,14 @@ func TestCheckpointStateHelpers(t *testing.T) {
 				"pod": map[string][]Block{
 					"container1": {
 						{
-							NUMAAffinity: 0,
+							NUMAAffinity: []int{0},
 							Type:         v1.ResourceMemory,
 							Size:         512,
 						},
 					},
 					"container2": {
 						{
-							NUMAAffinity: 0,
+							NUMAAffinity: []int{0},
 							Type:         v1.ResourceMemory,
 							Size:         512,
 						},
@@ -329,7 +324,7 @@ func TestCheckpointStateClear(t *testing.T) {
 				"pod": map[string][]Block{
 					"container1": {
 						{
-							NUMAAffinity: 0,
+							NUMAAffinity: []int{0},
 							Type:         v1.ResourceMemory,
 							Size:         1024,
 						},

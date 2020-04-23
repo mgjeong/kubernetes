@@ -1,4 +1,4 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
@@ -43,4 +43,23 @@ filegroup(
     ],
     tags = ["automanaged"],
     visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = [
+        "memory_manager_test.go",
+        "policy_single_numa_test.go",
+    ],
+    embed = [":go_default_library"],
+    deps = [
+        "//pkg/kubelet/cm/memorymanager/state:go_default_library",
+        "//pkg/kubelet/cm/topologymanager:go_default_library",
+        "//pkg/kubelet/cm/topologymanager/bitmask:go_default_library",
+        "//staging/src/k8s.io/api/core/v1:go_default_library",
+        "//staging/src/k8s.io/apimachinery/pkg/api/resource:go_default_library",
+        "//staging/src/k8s.io/apimachinery/pkg/apis/meta/v1:go_default_library",
+        "//staging/src/k8s.io/apimachinery/pkg/types:go_default_library",
+        "//vendor/github.com/google/cadvisor/info/v1:go_default_library",
+    ],
 )

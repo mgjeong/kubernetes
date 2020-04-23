@@ -670,6 +670,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 	ExpandCSIVolumes:               {Default: true, PreRelease: featuregate.Beta},
 	AttachVolumeLimit:              {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.19
 	CPUManager:                     {Default: true, PreRelease: featuregate.Beta},
+	MemoryManager:                  {Default: false, PreRelease: featuregate.Alpha},
 	CPUCFSQuotaPeriod:              {Default: false, PreRelease: featuregate.Alpha},
 	TopologyManager:                {Default: true, PreRelease: featuregate.Beta},
 	ServiceNodeExclusion:           {Default: true, PreRelease: featuregate.Beta},

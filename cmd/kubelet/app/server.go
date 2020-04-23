@@ -690,7 +690,7 @@ func run(s *options.KubeletServer, kubeDeps *kubelet.Dependencies, featureGate f
 			klog.Infof("After cpu setting is overwritten, KubeReserved=\"%v\", SystemReserved=\"%v\"", s.KubeReserved, s.SystemReserved)
 		}
 
-		preReservedMemoryZone, err:= parsePreReservedMemoryConfig(s.PreReservedMemoryZone)
+		preReservedMemoryZone, err := parsePreReservedMemoryConfig(s.PreReservedMemoryZone)
 		if err != nil {
 			return err
 		}
@@ -740,15 +740,15 @@ func run(s *options.KubeletServer, kubeDeps *kubelet.Dependencies, featureGate f
 					ReservedSystemCPUs:       reservedSystemCPUs,
 					HardEvictionThresholds:   hardEvictionThresholds,
 				},
-				QOSReserved:                                 *experimentalQOSReserved,
-				ExperimentalCPUManagerPolicy:                s.CPUManagerPolicy,
-				ExperimentalCPUManagerReconcilePeriod:       s.CPUManagerReconcilePeriod.Duration,
-				ExperimentalMemoryManagerPolicy:             s.MemoryManagerPolicy,
-				ExperimentalMemoryManagerPreReservedMemory:  preReservedMemoryZone,
-				ExperimentalPodPidsLimit:                    s.PodPidsLimit,
-				EnforceCPULimits:                            s.CPUCFSQuota,
-				CPUCFSQuotaPeriod:                           s.CPUCFSQuotaPeriod.Duration,
-				ExperimentalTopologyManagerPolicy:           s.TopologyManagerPolicy,
+				QOSReserved:                                *experimentalQOSReserved,
+				ExperimentalCPUManagerPolicy:               s.CPUManagerPolicy,
+				ExperimentalCPUManagerReconcilePeriod:      s.CPUManagerReconcilePeriod.Duration,
+				ExperimentalMemoryManagerPolicy:            s.MemoryManagerPolicy,
+				ExperimentalMemoryManagerPreReservedMemory: preReservedMemoryZone,
+				ExperimentalPodPidsLimit:                   s.PodPidsLimit,
+				EnforceCPULimits:                           s.CPUCFSQuota,
+				CPUCFSQuotaPeriod:                          s.CPUCFSQuotaPeriod.Duration,
+				ExperimentalTopologyManagerPolicy:          s.TopologyManagerPolicy,
 			},
 			s.FailSwapOn,
 			devicePluginEnabled,
@@ -1258,7 +1258,7 @@ func parsePreReservedMemoryConfig(config []map[string]string) (map[int]map[v1.Re
 
 	const (
 		indexKey = "numa-node"
-		typeKey = "memory-type"
+		typeKey  = "memory-type"
 		limitKey = "limit"
 	)
 
@@ -1277,7 +1277,7 @@ func parsePreReservedMemoryConfig(config []map[string]string) (map[int]map[v1.Re
 	for _, m := range config {
 		idxInString, _ := m[indexKey]
 		idx, err := strconv.Atoi(idxInString)
-		if err != nil || idx < 0  {
+		if err != nil || idx < 0 {
 			return nil, fmt.Errorf("NUMA index conversion error for value: \"%s\"", idxInString)
 		}
 
@@ -1303,7 +1303,6 @@ func parsePreReservedMemoryConfig(config []map[string]string) (map[int]map[v1.Re
 
 	return parsed, nil
 }
-
 
 // BootstrapKubeletConfigController constructs and bootstrap a configuration controller
 func BootstrapKubeletConfigController(dynamicConfigDir string, transform dynamickubeletconfig.TransformFunc) (*kubeletconfiginternal.KubeletConfiguration, *dynamickubeletconfig.Controller, error) {

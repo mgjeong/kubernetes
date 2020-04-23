@@ -75,6 +75,10 @@ func (sc *stateCheckpoint) restoreState() error {
 		return err
 	}
 
+	if sc.policyName != checkpoint.PolicyName {
+		return fmt.Errorf("[memorymanager] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
+	}
+
 	sc.cache.SetMachineState(checkpoint.MachineState)
 	sc.cache.SetMemoryAssignments(checkpoint.Entries)
 
@@ -99,7 +103,7 @@ func (sc *stateCheckpoint) storeState() error {
 }
 
 // GetMemoryState returns Memory Map stored in the State
-func (sc *stateCheckpoint) GetMachineState() MemoryMap {
+func (sc *stateCheckpoint) GetMachineState() NodeMap {
 	sc.RLock()
 	defer sc.RUnlock()
 
@@ -122,8 +126,8 @@ func (sc *stateCheckpoint) GetMemoryAssignments() ContainerMemoryAssignments {
 	return sc.cache.GetMemoryAssignments()
 }
 
-// SetMachineState stores MemoryMap in State
-func (sc *stateCheckpoint) SetMachineState(memoryMap MemoryMap) {
+// SetMachineState stores NodeMap in State
+func (sc *stateCheckpoint) SetMachineState(memoryMap NodeMap) {
 	sc.Lock()
 	defer sc.Unlock()
 

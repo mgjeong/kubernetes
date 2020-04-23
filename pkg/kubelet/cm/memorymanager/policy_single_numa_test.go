@@ -116,8 +116,8 @@ type testSingleNUMAPolicy struct {
 	description           string
 	assignments           state.ContainerMemoryAssignments
 	expectedAssignments   state.ContainerMemoryAssignments
-	machineState          state.MemoryMap
-	expectedMachineState  state.MemoryMap
+	machineState          state.NodeMap
+	expectedMachineState  state.NodeMap
 	systemReserved        systemReservedMemory
 	expectedError         error
 	machineInfo           *cadvisorapi.MachineInfo
@@ -153,22 +153,25 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 		{
 			description:         "should fill the state with default values, when the state is empty",
 			expectedAssignments: state.ContainerMemoryAssignments{},
-			expectedMachineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           1536 * mb,
-						Reserved:       0,
-						SystemReserved: 512 * mb,
-						TotalMemSize:   2 * gb,
+			expectedMachineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
 					},
-					hugepages1Gi: {
-						Allocatable:    gb,
-						Free:           gb,
-						Reserved:       0,
-						SystemReserved: 0,
-						TotalMemSize:   gb,
-					},
+					Nodes: []int{},
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -194,22 +197,25 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 		},
 		{
 			description: "should fail when machine state does not have all NUMA nodes",
-			machineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           1536 * mb,
-						Reserved:       0,
-						SystemReserved: 512 * mb,
-						TotalMemSize:   2 * gb,
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
 					},
-					hugepages1Gi: {
-						Allocatable:    gb,
-						Free:           gb,
-						Reserved:       0,
-						SystemReserved: 0,
-						TotalMemSize:   gb,
-					},
+					Nodes: []int{},
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -247,15 +253,18 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 		},
 		{
 			description: "should fail when machine state does not have memory resource",
-			machineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					hugepages1Gi: {
-						Allocatable:    gb,
-						Free:           gb,
-						Reserved:       0,
-						SystemReserved: 0,
-						TotalMemSize:   gb,
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
 					},
+					Nodes: []int{},
 				},
 			},
 			machineInfo: &cadvisorapi.MachineInfo{
@@ -277,15 +286,18 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 		},
 		{
 			description: "should fail when machine state has wrong size of total memory",
-			machineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           1536 * mb,
-						Reserved:       0,
-						SystemReserved: 512 * mb,
-						TotalMemSize:   1536 * mb,
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   1536 * mb,
+						},
 					},
+					Nodes: []int{},
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -311,16 +323,19 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 			expectedError: fmt.Errorf("[memorymanager] machine state has different size of the total memory"),
 		},
 		{
-			description: "should fail when machine state has wrong size of the system reserved memory",
-			machineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           1536 * mb,
-						Reserved:       0,
-						SystemReserved: 1024 * mb,
-						TotalMemSize:   2 * gb,
+			description: "should fail when machine state has wrong size of system reserved memory",
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 1024,
+							TotalMemSize:   2 * gb,
+						},
 					},
+					Nodes: []int{},
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -358,15 +373,18 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 					},
 				},
 			},
-			machineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           1536 * mb,
-						Reserved:       0,
-						SystemReserved: 512 * mb,
-						TotalMemSize:   2 * gb,
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
 					},
+					Nodes: []int{},
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -393,22 +411,25 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 		},
 		{
 			description: "should fail when machine state has wrong size of hugepages",
-			machineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           1536 * mb,
-						Reserved:       0,
-						SystemReserved: 512 * mb,
-						TotalMemSize:   2 * gb,
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
 					},
-					hugepages1Gi: {
-						Allocatable:    gb,
-						Free:           gb,
-						Reserved:       0,
-						SystemReserved: 0,
-						TotalMemSize:   gb,
-					},
+					Nodes: []int{},
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -434,23 +455,26 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 			expectedError: fmt.Errorf("[memorymanager] machine state has different size of the total hugepages-1Gi"),
 		},
 		{
-			description: "should fail when machine state has wrong size of the system reserved hugepages",
-			machineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           1536 * mb,
-						Reserved:       0,
-						SystemReserved: 512 * mb,
-						TotalMemSize:   2 * gb,
+			description: "should fail when machine state has wrong size of system reserved hugepages",
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: gb,
+							TotalMemSize:   2 * gb,
+						},
 					},
-					hugepages1Gi: {
-						Allocatable:    gb,
-						Free:           gb,
-						Reserved:       0,
-						SystemReserved: gb,
-						TotalMemSize:   2 * gb,
-					},
+					Nodes: []int{},
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -497,22 +521,25 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 					},
 				},
 			},
-			machineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           1536 * mb,
-						Reserved:       0,
-						SystemReserved: 512 * mb,
-						TotalMemSize:   2 * gb,
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    4 * gb,
+							Free:           gb,
+							Reserved:       3 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   4 * gb,
+						},
 					},
-					hugepages1Gi: {
-						Allocatable:    4 * gb,
-						Free:           gb,
-						Reserved:       3 * gb,
-						SystemReserved: 0,
-						TotalMemSize:   4 * gb,
-					},
+					Nodes: []int{},
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -570,40 +597,46 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 		{
 			description:         "should do nothing for non-guaranteed pods",
 			expectedAssignments: state.ContainerMemoryAssignments{},
-			machineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           1536 * mb,
-						Reserved:       0,
-						SystemReserved: 512 * mb,
-						TotalMemSize:   2 * gb,
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
 					},
-					hugepages1Gi: {
-						Allocatable:    gb,
-						Free:           gb,
-						Reserved:       0,
-						SystemReserved: 0,
-						TotalMemSize:   gb,
-					},
+					Nodes: []int{},
 				},
 			},
-			expectedMachineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           1536 * mb,
-						Reserved:       0,
-						SystemReserved: 512 * mb,
-						TotalMemSize:   2 * gb,
+			expectedMachineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
 					},
-					hugepages1Gi: {
-						Allocatable:    gb,
-						Free:           gb,
-						Reserved:       0,
-						SystemReserved: 0,
-						TotalMemSize:   gb,
-					},
+					Nodes: []int{},
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -638,40 +671,46 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 					},
 				},
 			},
-			machineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           512 * mb,
-						Reserved:       1024 * mb,
-						SystemReserved: 512 * mb,
-						TotalMemSize:   2 * gb,
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1024 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
 					},
-					hugepages1Gi: {
-						Allocatable:    gb,
-						Free:           gb,
-						Reserved:       0,
-						SystemReserved: 0,
-						TotalMemSize:   gb,
-					},
+					Nodes: []int{},
 				},
 			},
-			expectedMachineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           512 * mb,
-						Reserved:       1024 * mb,
-						SystemReserved: 512 * mb,
-						TotalMemSize:   2 * gb,
+			expectedMachineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1024 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
 					},
-					hugepages1Gi: {
-						Allocatable:    gb,
-						Free:           gb,
-						Reserved:       0,
-						SystemReserved: 0,
-						TotalMemSize:   gb,
-					},
+					Nodes: []int{},
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -701,40 +740,46 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 					},
 				},
 			},
-			machineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           1536 * mb,
-						Reserved:       0,
-						SystemReserved: 512 * mb,
-						TotalMemSize:   2 * gb,
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
 					},
-					hugepages1Gi: {
-						Allocatable:    gb,
-						Free:           gb,
-						Reserved:       0,
-						SystemReserved: 0,
-						TotalMemSize:   gb,
-					},
+					Nodes: []int{},
 				},
 			},
-			expectedMachineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           512 * mb,
-						Reserved:       1024 * mb,
-						SystemReserved: 512 * mb,
-						TotalMemSize:   2 * gb,
+			expectedMachineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1024 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           0,
+							Reserved:       gb,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
 					},
-					hugepages1Gi: {
-						Allocatable:    gb,
-						Free:           0,
-						Reserved:       gb,
-						SystemReserved: 0,
-						TotalMemSize:   gb,
-					},
+					Nodes: []int{},
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -777,40 +822,46 @@ func TestSingleNUMAPolicyRemoveContainer(t *testing.T) {
 		{
 			description:         "should do nothing when the container does not exist under the state",
 			expectedAssignments: state.ContainerMemoryAssignments{},
-			machineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           1536 * mb,
-						Reserved:       0,
-						SystemReserved: 512 * mb,
-						TotalMemSize:   2 * gb,
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
 					},
-					hugepages1Gi: {
-						Allocatable:    gb,
-						Free:           gb,
-						Reserved:       0,
-						SystemReserved: 0,
-						TotalMemSize:   gb,
-					},
+					Nodes: []int{},
 				},
 			},
-			expectedMachineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           1536 * mb,
-						Reserved:       0,
-						SystemReserved: 512 * mb,
-						TotalMemSize:   2 * gb,
+			expectedMachineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
 					},
-					hugepages1Gi: {
-						Allocatable:    gb,
-						Free:           gb,
-						Reserved:       0,
-						SystemReserved: 0,
-						TotalMemSize:   gb,
-					},
+					Nodes: []int{},
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -838,40 +889,46 @@ func TestSingleNUMAPolicyRemoveContainer(t *testing.T) {
 				},
 			},
 			expectedAssignments: state.ContainerMemoryAssignments{},
-			machineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           512 * mb,
-						Reserved:       1024 * mb,
-						SystemReserved: 512 * mb,
-						TotalMemSize:   2 * gb,
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1024 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           0,
+							Reserved:       gb,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
 					},
-					hugepages1Gi: {
-						Allocatable:    gb,
-						Free:           0,
-						Reserved:       gb,
-						SystemReserved: 0,
-						TotalMemSize:   gb,
-					},
+					Nodes: []int{},
 				},
 			},
-			expectedMachineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           1536 * mb,
-						Reserved:       0,
-						SystemReserved: 512 * mb,
-						TotalMemSize:   2 * gb,
+			expectedMachineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
 					},
-					hugepages1Gi: {
-						Allocatable:    gb,
-						Free:           gb,
-						Reserved:       0,
-						SystemReserved: 0,
-						TotalMemSize:   gb,
-					},
+					Nodes: []int{},
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -977,38 +1034,44 @@ func TestSingleNUMAPolicyGetTopologyHints(t *testing.T) {
 					},
 				},
 			},
-			machineState: state.MemoryMap{
-				0: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           512 * mb,
-						Reserved:       1024 * mb,
-						SystemReserved: 512 * mb,
-						TotalMemSize:   2 * gb,
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1024 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           0,
+							Reserved:       gb,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
 					},
-					hugepages1Gi: {
-						Allocatable:    gb,
-						Free:           0,
-						Reserved:       gb,
-						SystemReserved: 0,
-						TotalMemSize:   gb,
-					},
+					Nodes: []int{},
 				},
-				1: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536 * mb,
-						Free:           1536 * mb,
-						Reserved:       0,
-						SystemReserved: 512 * mb,
-						TotalMemSize:   2 * gb,
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
 					},
-					hugepages1Gi: {
-						Allocatable:    gb,
-						Free:           gb,
-						Reserved:       0,
-						SystemReserved: 0,
-						TotalMemSize:   gb,
-					},
+					Nodes: []int{},
 				},
 			},
 			pod: getPod("pod2", "container2", requirementsGuaranteed),

@@ -21,6 +21,8 @@ import (
 	"strings"
 	"testing"
 
+	"k8s.io/klog"
+
 	"github.com/stretchr/testify/assert"
 
 	v1 "k8s.io/api/core/v1"
@@ -63,9 +65,9 @@ func TestCheckpointStateRestore(t *testing.T) {
 			"Restore valid checkpoint",
 			`{
 				"policyName":"singleNUMA",
-				"machineState":{"0":{"memory":{"total":2048,"systemReserved":512,"allocatable":1536,"reserved":512,"free":1024}}},
+				"machineState":{"0":{"numberOfAssignments":0,"memoryMap":{"memory":{"total":2048,"systemReserved":512,"allocatable":1536,"reserved":512,"free":1024}},"nodes":[]}},
 				"entries":{"pod":{"container1":[{"numaAffinity":0,"type":"memory","size":512}]}},
-				"checksum": 1487481263
+				"checksum": 2903074075
 			}`,
 			containermap.ContainerMap{},
 			"",
@@ -81,14 +83,16 @@ func TestCheckpointStateRestore(t *testing.T) {
 						},
 					},
 				},
-				machineState: MemoryMap{
-					0: map[v1.ResourceName]*MemoryTable{
-						v1.ResourceMemory: {
-							Allocatable:    1536,
-							Free:           1024,
-							Reserved:       512,
-							SystemReserved: 512,
-							TotalMemSize:   2048,
+				machineState: NodeMap{
+					0: &NodeState{
+						MemoryMap: map[v1.ResourceName]*MemoryTable{
+							v1.ResourceMemory: {
+								Allocatable:    1536,
+								Free:           1024,
+								Reserved:       512,
+								SystemReserved: 512,
+								TotalMemSize:   2048,
+							},
 						},
 					},
 				},
@@ -98,7 +102,7 @@ func TestCheckpointStateRestore(t *testing.T) {
 			"Restore checkpoint with invalid checksum",
 			`{
 				"policyName":"singleNUMA",
-				"machineState":{"0":{"memory":{"total":2048,"systemReserved":512,"allocatable":1536,"reserved":512,"free":1024}}},
+				"machineState":{"0":{"numberOfAssignments":0,"memoryMap":{"memory":{"total":2048,"systemReserved":512,"allocatable":1536,"reserved":512,"free":1024}},"nodes":[]}},
 				"entries":{"pod":{"container1":[{"affinity":0,"type":"memory","size":512}]}},
 				"checksum": 101010
 			}`,
@@ -131,6 +135,9 @@ func TestCheckpointStateRestore(t *testing.T) {
 			}
 
 			restoredState, err := NewCheckpointState(testingDir, testingCheckpoint, "singleNUMA", tc.initialContainers)
+			if err != nil {
+				klog.Infof("MYERROR: %v", err)
+			}
 			if strings.TrimSpace(tc.expectedError) != "" {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), "could not restore state from checkpoint: "+tc.expectedError)
@@ -156,14 +163,16 @@ func TestCheckpointStateStore(t *testing.T) {
 				},
 			},
 		},
-		machineState: MemoryMap{
-			0: map[v1.ResourceName]*MemoryTable{
-				v1.ResourceMemory: {
-					Allocatable:    1536,
-					Free:           512,
-					Reserved:       1024,
-					SystemReserved: 512,
-					TotalMemSize:   2048,
+		machineState: NodeMap{
+			0: &NodeState{
+				MemoryMap: map[v1.ResourceName]*MemoryTable{
+					v1.ResourceMemory: {
+						Allocatable:    1536,
+						Free:           512,
+						Reserved:       1024,
+						SystemReserved: 512,
+						TotalMemSize:   2048,
+					},
 				},
 			},
 		},
@@ -191,7 +200,7 @@ func TestCheckpointStateStore(t *testing.T) {
 func TestCheckpointStateHelpers(t *testing.T) {
 	testCases := []struct {
 		description  string
-		machineState MemoryMap
+		machineState NodeMap
 		assignments  ContainerMemoryAssignments
 	}{
 		{
@@ -207,15 +216,18 @@ func TestCheckpointStateHelpers(t *testing.T) {
 					},
 				},
 			},
-			machineState: MemoryMap{
-				0: map[v1.ResourceName]*MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536,
-						Free:           512,
-						Reserved:       1024,
-						SystemReserved: 512,
-						TotalMemSize:   2048,
+			machineState: NodeMap{
+				0: &NodeState{
+					MemoryMap: map[v1.ResourceName]*MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536,
+							Free:           512,
+							Reserved:       1024,
+							SystemReserved: 512,
+							TotalMemSize:   2048,
+						},
 					},
+					Nodes: []int{},
 				},
 			},
 		},
@@ -239,15 +251,18 @@ func TestCheckpointStateHelpers(t *testing.T) {
 					},
 				},
 			},
-			machineState: MemoryMap{
-				0: map[v1.ResourceName]*MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536,
-						Free:           512,
-						Reserved:       1024,
-						SystemReserved: 512,
-						TotalMemSize:   2048,
+			machineState: NodeMap{
+				0: &NodeState{
+					MemoryMap: map[v1.ResourceName]*MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536,
+							Free:           512,
+							Reserved:       1024,
+							SystemReserved: 512,
+							TotalMemSize:   2048,
+						},
 					},
+					Nodes: []int{},
 				},
 			},
 		},
@@ -258,15 +273,18 @@ func TestCheckpointStateHelpers(t *testing.T) {
 					"container1": {},
 				},
 			},
-			machineState: MemoryMap{
-				0: map[v1.ResourceName]*MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536,
-						Free:           1536,
-						Reserved:       0,
-						SystemReserved: 512,
-						TotalMemSize:   2048,
+			machineState: NodeMap{
+				0: &NodeState{
+					MemoryMap: map[v1.ResourceName]*MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536,
+							Free:           1536,
+							Reserved:       0,
+							SystemReserved: 512,
+							TotalMemSize:   2048,
+						},
 					},
+					Nodes: []int{},
 				},
 			},
 		},
@@ -302,7 +320,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 func TestCheckpointStateClear(t *testing.T) {
 	testCases := []struct {
 		description  string
-		machineState MemoryMap
+		machineState NodeMap
 		assignments  ContainerMemoryAssignments
 	}{
 		{
@@ -318,14 +336,16 @@ func TestCheckpointStateClear(t *testing.T) {
 					},
 				},
 			},
-			machineState: MemoryMap{
-				0: map[v1.ResourceName]*MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    1536,
-						Free:           512,
-						Reserved:       1024,
-						SystemReserved: 512,
-						TotalMemSize:   2048,
+			machineState: NodeMap{
+				0: &NodeState{
+					MemoryMap: map[v1.ResourceName]*MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536,
+							Free:           512,
+							Reserved:       1024,
+							SystemReserved: 512,
+							TotalMemSize:   2048,
+						},
 					},
 				},
 			},
@@ -341,7 +361,7 @@ func TestCheckpointStateClear(t *testing.T) {
 			state.SetMemoryAssignments(tc.assignments)
 
 			state.ClearState()
-			assert.Equal(t, MemoryMap{}, state.GetMachineState(), "cleared state with non-empty machine state")
+			assert.Equal(t, NodeMap{}, state.GetMachineState(), "cleared state with non-empty machine state")
 			assert.Equal(t, ContainerMemoryAssignments{}, state.GetMemoryAssignments(), "cleared state with non-empty memory assignments")
 		})
 	}

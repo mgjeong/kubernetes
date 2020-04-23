@@ -121,9 +121,9 @@ func (p *singleNUMAPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Co
 		}
 
 		// update the machine state
-		nodeResourceState := machineState[affinityBits[0]][resourceName]
-		nodeResourceState.Reserved += uint64(size)
-		nodeResourceState.Free -= uint64(size)
+		nodeResourceMemoryState := machineState[affinityBits[0]].MemoryMap[resourceName]
+		nodeResourceMemoryState.Reserved += uint64(size)
+		nodeResourceMemoryState.Free -= uint64(size)
 
 		// update memory blocks
 		containerBlocks = append(containerBlocks, state.Block{
@@ -152,9 +152,9 @@ func (p *singleNUMAPolicy) RemoveContainer(s state.State, podUID string, contain
 	// Mutate machine memory state to update free and reserved memory
 	machineState := s.GetMachineState()
 	for _, b := range blocks {
-		nodeResourceState := machineState[b.NUMAAffinity][b.Type]
-		nodeResourceState.Free += b.Size
-		nodeResourceState.Reserved -= b.Size
+		nodeResourceMemoryState := machineState[b.NUMAAffinity].MemoryMap[b.Type]
+		nodeResourceMemoryState.Free += b.Size
+		nodeResourceMemoryState.Reserved -= b.Size
 	}
 	s.SetMachineState(machineState)
 
@@ -213,8 +213,8 @@ func (p *singleNUMAPolicy) GetTopologyHints(s state.State, pod *v1.Pod, containe
 				break
 			}
 		} else {
-			for numaId, memoryState := range s.GetMachineState() {
-				if memoryState[resourceName].Free >= uint64(requested) {
+			for numaId, nodeState := range s.GetMachineState() {
+				if nodeState.MemoryMap[resourceName].Free >= uint64(requested) {
 					affinity, err := bitmask.NewBitMask(numaId)
 					if err != nil {
 						klog.Errorf("[memorymanager] failed to generate NUMA bitmask: %v", err)
@@ -244,14 +244,18 @@ func (p *singleNUMAPolicy) validateState(s state.State) error {
 		for _, node := range p.machineInfo.Topology {
 			// fill memory table with regular memory values
 			allocatable := node.Memory - p.systemReserved[node.Id][v1.ResourceMemory]
-			machineState[node.Id] = map[v1.ResourceName]*state.MemoryTable{
-				v1.ResourceMemory: {
-					Allocatable:    allocatable,
-					Free:           allocatable,
-					Reserved:       0,
-					SystemReserved: p.systemReserved[node.Id][v1.ResourceMemory],
-					TotalMemSize:   node.Memory,
+			machineState[node.Id] = &state.NodeState{
+				NumberOfAssignments: 0,
+				MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+					v1.ResourceMemory: {
+						Allocatable:    allocatable,
+						Free:           allocatable,
+						Reserved:       0,
+						SystemReserved: p.systemReserved[node.Id][v1.ResourceMemory],
+						TotalMemSize:   node.Memory,
+					},
 				},
+				Nodes: []int{},
 			}
 
 			// fill memory table with huge pages values
@@ -259,7 +263,7 @@ func (p *singleNUMAPolicy) validateState(s state.State) error {
 				hugepageQuantity := resource.NewQuantity(int64(hugepage.PageSize)*1024, resource.BinarySI)
 				resourceName := corehelper.HugePageResourceName(*hugepageQuantity)
 				// TODO: once it will be possible to reserve huge pages for system usage, we should update values
-				machineState[node.Id][resourceName] = &state.MemoryTable{
+				machineState[node.Id].MemoryMap[resourceName] = &state.MemoryTable{
 					TotalMemSize:   hugepage.NumPages * hugepage.PageSize * 1024,
 					SystemReserved: 0,
 					Allocatable:    hugepage.NumPages * hugepage.PageSize * 1024,
@@ -290,18 +294,18 @@ func (p *singleNUMAPolicy) validateState(s state.State) error {
 	}
 
 	for _, node := range p.machineInfo.Topology {
-		machineMemory, ok := machineState[node.Id]
+		nodeState, ok := machineState[node.Id]
 		if !ok {
 			return fmt.Errorf("[memorymanager] machine state does not have NUMA node %d", node.Id)
 		}
 
 		// validated that machine state memory values equals to node values
-		if err := p.validateResourceMemory(&node, node.Memory, machineMemory, v1.ResourceMemory); err != nil {
+		if err := p.validateResourceMemory(&node, node.Memory, nodeState.MemoryMap, v1.ResourceMemory); err != nil {
 			return err
 		}
 
 		// validate that memory assigned to containers equals to reserved one under the machine state
-		if err := p.validateResourceReservedMemory(assignmentsMemory[node.Id], machineMemory, v1.ResourceMemory); err != nil {
+		if err := p.validateResourceReservedMemory(assignmentsMemory[node.Id], nodeState.MemoryMap, v1.ResourceMemory); err != nil {
 			return err
 		}
 
@@ -311,12 +315,12 @@ func (p *singleNUMAPolicy) validateState(s state.State) error {
 			expectedTotal := hugepage.NumPages * hugepage.PageSize * 1024
 
 			// validated that machine state memory values equals to node values
-			if err := p.validateResourceMemory(&node, expectedTotal, machineMemory, resourceName); err != nil {
+			if err := p.validateResourceMemory(&node, expectedTotal, nodeState.MemoryMap, resourceName); err != nil {
 				return err
 			}
 
 			// validate that memory assigned to containers equals to reserved one under the machine state
-			if err := p.validateResourceReservedMemory(assignmentsMemory[node.Id], machineMemory, resourceName); err != nil {
+			if err := p.validateResourceReservedMemory(assignmentsMemory[node.Id], nodeState.MemoryMap, resourceName); err != nil {
 				return err
 			}
 		}
@@ -352,7 +356,7 @@ func getDefaultNUMAAffinity(s state.State, container *v1.Container) (bitmask.Bit
 	machineState := s.GetMachineState()
 
 	var nodeID = -1
-	for id, memoryState := range machineState {
+	for id, nodeState := range machineState {
 		for resourceName, q := range container.Resources.Requests {
 			if resourceName != v1.ResourceMemory && !corehelper.IsHugePageResourceName(resourceName) {
 				continue
@@ -363,7 +367,7 @@ func getDefaultNUMAAffinity(s state.State, container *v1.Container) (bitmask.Bit
 				return nil, fmt.Errorf("[memorymanager] failed to represent quantity as int64")
 			}
 
-			resourceState := memoryState[resourceName]
+			resourceState := nodeState.MemoryMap[resourceName]
 			if resourceState.Free < uint64(size) {
 				nodeID = -1
 				break

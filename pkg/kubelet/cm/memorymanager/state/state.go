@@ -29,16 +29,40 @@ type MemoryTable struct {
 	Free           uint64 `json:"free"`
 }
 
-// MemoryMap contains memory information for each NUMA node.
-type MemoryMap map[int]map[v1.ResourceName]*MemoryTable
+// NodeState contains NUMA node related information
+type NodeState struct {
+	// NumberOfAssignments contains a number of containers that allocated the memory from this NUMA node
+	NumberOfAssignments int `json:"numberOfAssignments"`
+	// MemoryTable contains NUMA node memory related information
+	MemoryMap map[v1.ResourceName]*MemoryTable `json:"memoryMap"`
+	// NodeGroups contains NUMA nodes that current NUMA node in group with them
+	// It means that we have container that pinned to the current NUMA node and all group nodes
+	Nodes []int `json:"nodes"`
+}
 
-// Clone returns a copy of MemoryMap
-func (mm MemoryMap) Clone() MemoryMap {
-	clone := make(MemoryMap)
-	for node, memory := range mm {
-		clone[node] = map[v1.ResourceName]*MemoryTable{}
-		for memoryType, memoryTable := range memory {
-			clone[node][memoryType] = &MemoryTable{
+// NodeMap contains memory information for each NUMA node.
+type NodeMap map[int]*NodeState
+
+// Clone returns a copy of NodeMap
+func (nm NodeMap) Clone() NodeMap {
+	clone := make(NodeMap)
+	for node, s := range nm {
+		if s == nil {
+			clone[node] = nil
+			continue
+		}
+
+		clone[node] = &NodeState{}
+		clone[node].NumberOfAssignments = s.NumberOfAssignments
+		clone[node].Nodes = append([]int{}, s.Nodes...)
+
+		if s.MemoryMap == nil {
+			continue
+		}
+
+		clone[node].MemoryMap = map[v1.ResourceName]*MemoryTable{}
+		for memoryType, memoryTable := range s.MemoryMap {
+			clone[node].MemoryMap[memoryType] = &MemoryTable{
 				Allocatable:    memoryTable.Allocatable,
 				Free:           memoryTable.Free,
 				Reserved:       memoryTable.Reserved,
@@ -75,7 +99,7 @@ func (as ContainerMemoryAssignments) Clone() ContainerMemoryAssignments {
 // Reader interface used to read current memory/pod assignment state
 type Reader interface {
 	// GetMachineState returns Memory Map stored in the State
-	GetMachineState() MemoryMap
+	GetMachineState() NodeMap
 	// GetMemoryBlocks returns memory assignments of a container
 	GetMemoryBlocks(podUID string, containerName string) []Block
 	// GetMemoryAssignments returns ContainerMemoryAssignments
@@ -83,8 +107,8 @@ type Reader interface {
 }
 
 type writer interface {
-	// SetMachineState stores MemoryMap in State
-	SetMachineState(memoryMap MemoryMap)
+	// SetMachineState stores NodeMap in State
+	SetMachineState(memoryMap NodeMap)
 	// SetMemoryBlocks stores memory assignments of a container
 	SetMemoryBlocks(podUID string, containerName string, blocks []Block)
 	// SetMemoryAssignments sets ContainerMemoryAssignments by using the passed parameter

@@ -54,22 +54,6 @@ func getPod(podUID string, containerName string, requirements *v1.ResourceRequir
 
 type nodeResources map[v1.ResourceName]resource.Quantity
 
-func getPod(podUID string, containerName string, requirements *v1.ResourceRequirements) *v1.Pod {
-	return &v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			UID: types.UID(podUID),
-		},
-		Spec: v1.PodSpec{
-			Containers: []v1.Container{
-				{
-					Name:      containerName,
-					Resources: *requirements,
-				},
-			},
-		},
-	}
-}
-
 // validatePreReservedMemory
 func TestValidatePreReservedMemory(t *testing.T) {
 	const msgNotEqual = "the total amount of memory of type \"%s\" is not equal to the value determined by Node Allocatable feature"

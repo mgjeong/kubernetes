@@ -976,6 +976,11 @@ func TestSingleNUMAPolicyGetTopologyHints(t *testing.T) {
 		t.Errorf("Unexpected error: %v", err)
 	}
 
+	affinity2, err := bitmask.NewBitMask(0, 1)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
 	testCases := []testSingleNUMAPolicy{
 		{
 			description:           "should not provide topology hints for non-guaranteed pods",
@@ -1081,11 +1086,19 @@ func TestSingleNUMAPolicyGetTopologyHints(t *testing.T) {
 						NUMANodeAffinity: affinity1,
 						Preferred:        true,
 					},
+					{
+						NUMANodeAffinity: affinity2,
+						Preferred:        false,
+					},
 				},
 				string(hugepages1Gi): {
 					{
 						NUMANodeAffinity: affinity1,
 						Preferred:        true,
+					},
+					{
+						NUMANodeAffinity: affinity2,
+						Preferred:        false,
 					},
 				},
 			},

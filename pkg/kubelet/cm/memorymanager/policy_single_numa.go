@@ -18,6 +18,7 @@ package memorymanager
 
 import (
 	"fmt"
+	"sort"
 
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 
@@ -36,8 +37,9 @@ const policyTypeSingleNUMA policyType = "single-numa"
 type systemReservedMemory map[int]map[v1.ResourceName]uint64
 
 // SingleNUMAPolicy is implementation of the policy interface for the single NUMA policy
-// TODO: need to re-evaluate what field we really need
 type singleNUMAPolicy struct {
+	// crossNUMAGroups contains groups of NUMA node that can be used for cross NUMA memory allocations
+	crossNUMAGroups [][]int
 	// machineInfo contains machine memory related information
 	machineInfo *cadvisorapi.MachineInfo
 	// reserved contains memory that reserved for kube
@@ -93,18 +95,16 @@ func (p *singleNUMAPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Co
 	klog.Infof("[memorymanager] Pod %v, Container %v Topology Affinity is: %v", pod.UID, container.Name, hint)
 
 	var affinityBits []int
-	if !hint.Preferred || hint.NUMANodeAffinity == nil {
-		defaultAffinity, err := getDefaultNUMAAffinity(s, container)
+	// it can happen, when the best hint includes all NUMA nodes and memory manager enabled, it can happen
+	// only under the topology manager best-effort or none policy
+	if hint.NUMANodeAffinity == nil {
+		defaultAffinity, err := p.getDefaultNUMAAffinity(s, container, hint.Preferred)
 		if err != nil {
 			return err
 		}
 		affinityBits = defaultAffinity.GetBits()
 	} else {
 		affinityBits = hint.NUMANodeAffinity.GetBits()
-	}
-
-	if len(affinityBits) > 1 {
-		return fmt.Errorf("[memorymanager] NUMA affinity has more than one NUMA node")
 	}
 
 	machineState := s.GetMachineState()
@@ -171,67 +171,183 @@ func (p *singleNUMAPolicy) GetTopologyHints(s state.State, pod *v1.Pod, containe
 		return nil
 	}
 
+	requestedResources, err := getRequestedResources(container)
+	if err != nil {
+		klog.Error(err.Error())
+		return nil
+	}
+
 	hints := map[string][]topologymanager.TopologyHint{}
+	for resourceName := range requestedResources {
+		hints[string(resourceName)] = []topologymanager.TopologyHint{}
+	}
+
 	containerBlocks := s.GetMemoryBlocks(string(pod.UID), container.Name)
-	for resourceName, q := range container.Resources.Requests {
+	// Short circuit to regenerate the same hints if there are already
+	// memory allocated for the container. This might happen after a
+	// kubelet restart, for example.
+	if containerBlocks != nil {
+		if len(containerBlocks) != len(requestedResources) {
+			klog.Errorf("[memorymanager] The number of requested resources of the container %s differs from the number of memory blocks", container.Name)
+			return nil
+		}
+
+		for _, b := range containerBlocks {
+			if _, ok := requestedResources[b.Type]; !ok {
+				klog.Errorf("[memorymanager] Container %s requested resources do not have resource of type %s", container.Name, b.Type)
+				return nil
+			}
+
+			if b.Size != requestedResources[b.Type] {
+				klog.Errorf("[memorymanager] Memory %s already allocated to (pod %v, container %v) with different number than request: requested: %d, allocated: %d", b.Type, pod.UID, container.Name, requestedResources[b.Type], b.Size)
+				return nil
+			}
+
+			containerNUMAAffinity, err := bitmask.NewBitMask(b.NUMAAffinity...)
+			if err != nil {
+				klog.Errorf("[memorymanager] failed to generate NUMA bitmask: %v", err)
+				return nil
+			}
+
+			klog.Infof("[memorymanager] Regenerating TopologyHints, %s was already allocated to (pod %v, container %v)", b.Type, pod.UID, container.Name)
+			hints[string(b.Type)] = append(hints[string(b.Type)], topologymanager.TopologyHint{
+				NUMANodeAffinity: containerNUMAAffinity,
+				Preferred:        true,
+			})
+		}
+		return hints
+	}
+
+	return p.calculateHints(s, requestedResources)
+}
+
+func getRequestedResources(container *v1.Container) (map[v1.ResourceName]uint64, error) {
+	requestedResources := map[v1.ResourceName]uint64{}
+	for resourceName, quantity := range container.Resources.Requests {
 		if resourceName != v1.ResourceMemory && !corehelper.IsHugePageResourceName(resourceName) {
 			continue
 		}
-
-		requested, succeed := q.AsInt64()
+		requestedSize, succeed := quantity.AsInt64()
 		if !succeed {
-			klog.Error("[memorymanager] failed to represent quantity as int64")
+			return nil, fmt.Errorf("[memorymanager] failed to represent quantity as int64")
+		}
+		requestedResources[resourceName] = uint64(requestedSize)
+	}
+	return requestedResources, nil
+}
+
+func (p *singleNUMAPolicy) calculateHints(s state.State, requestedResources map[v1.ResourceName]uint64) map[string][]topologymanager.TopologyHint {
+	hints := map[string][]topologymanager.TopologyHint{}
+	for resourceName := range requestedResources {
+		hints[string(resourceName)] = []topologymanager.TopologyHint{}
+	}
+
+	machineState := s.GetMachineState()
+	var numaNodes []int
+	for n := range machineState {
+		numaNodes = append(numaNodes, n)
+	}
+
+	bitmask.IterateBitMasks(numaNodes, func(mask bitmask.BitMask) {
+		maskBits := mask.GetBits()
+		singleNUMAHint := len(maskBits) == 1
+
+		// the node already in group with another node, it can not be used for the single NUMA node hint
+		if singleNUMAHint && len(machineState[maskBits[0]].Nodes) != 0 {
+			return
 		}
 
-		if _, ok := hints[string(resourceName)]; !ok {
-			hints[string(resourceName)] = []topologymanager.TopologyHint{}
-		}
-
-		// Short circuit to regenerate the same hints if there are already
-		// memory allocated for the container. This might happen after a
-		// kubelet restart, for example.
-		if containerBlocks != nil {
-			for _, b := range containerBlocks {
-				if b.Type != resourceName {
-					continue
+		totalFreeSize := map[v1.ResourceName]uint64{}
+		// calculate total free memory for the node mask
+		for _, nodeId := range maskBits {
+			// the node already used for memory assignment
+			if !singleNUMAHint && machineState[nodeId].NumberOfAssignments != 0 {
+				// the node used for the single NUMA memory allocation, it can be used for cross NUMA hint
+				if len(machineState[nodeId].Nodes) == 0 {
+					return
 				}
 
-				if b.Size != uint64(requested) {
-					klog.Errorf("[memorymanager] Memory %s already allocated to (pod %v, container %v) with different number than request: requested: %d, allocated: %d", b.Type, pod.UID, container.Name, requested, b.Size)
-					return nil
-				}
+				nodeGroup := []int{nodeId}
+				nodeGroup = append(nodeGroup, machineState[nodeId].Nodes...)
 
-				containerNUMAAffinity, err := bitmask.NewBitMask(b.NUMAAffinity...)
-				if err != nil {
-					klog.Errorf("[memorymanager] failed to generate NUMA bitmask: %v", err)
-					return nil
+				// the node already used with different group of nodes, it can not be use with in the current hint
+				if !areGroupsEqual(nodeGroup, maskBits) {
+					return
 				}
-
-				klog.Infof("[memorymanager] Regenerating TopologyHints, %s was already allocated to (pod %v, container %v)", resourceName, pod.UID, container.Name)
-				hints[string(resourceName)] = append(hints[string(resourceName)], topologymanager.TopologyHint{
-					NUMANodeAffinity: containerNUMAAffinity,
-					Preferred:        true,
-				})
-				break
 			}
-		} else {
-			for numaId, nodeState := range s.GetMachineState() {
-				if nodeState.MemoryMap[resourceName].Free >= uint64(requested) {
-					affinity, err := bitmask.NewBitMask(numaId)
-					if err != nil {
-						klog.Errorf("[memorymanager] failed to generate NUMA bitmask: %v", err)
-						return nil
-					}
-					hints[string(resourceName)] = append(hints[string(resourceName)], topologymanager.TopologyHint{
-						NUMANodeAffinity: affinity,
-						Preferred:        true,
-					})
+
+			for resourceName := range requestedResources {
+				if _, ok := totalFreeSize[resourceName]; !ok {
+					totalFreeSize[resourceName] = 0
 				}
+				totalFreeSize[resourceName] += machineState[nodeId].MemoryMap[resourceName].Free
+			}
+		}
+
+		// verify that for all memory types the node mask has enough resources
+		for resourceName, requestedSize := range requestedResources {
+			if totalFreeSize[resourceName] < requestedSize {
+				return
+			}
+		}
+
+		preferred := p.isHintPreferred(maskBits)
+		// add the node mask as topology hint for all memory types
+		for resourceName := range requestedResources {
+			hints[string(resourceName)] = append(hints[string(resourceName)], topologymanager.TopologyHint{
+				NUMANodeAffinity: mask,
+				Preferred:        preferred,
+			})
+		}
+	})
+
+	return hints
+}
+
+func (p *singleNUMAPolicy) isHintPreferred(maskBits []int) bool {
+	// check if the mask is for the single NUMA node hint
+	if len(maskBits) == 1 {
+		// the node should be used only for cross NUMA memory allocation
+		return !p.isCrossNUMANode(maskBits[0])
+	}
+
+	return p.isCrossNUMAGroup(maskBits)
+}
+
+func (p *singleNUMAPolicy) isCrossNUMAGroup(maskBits []int) bool {
+	for _, group := range p.crossNUMAGroups {
+		if areGroupsEqual(group, maskBits) {
+			return true
+		}
+	}
+	return false
+}
+
+func areGroupsEqual(group1, group2 []int) bool {
+	sort.Ints(group1)
+	sort.Ints(group2)
+
+	if len(group1) != len(group2) {
+		return false
+	}
+
+	for i, elm := range group1 {
+		if group2[i] != elm {
+			return false
+		}
+	}
+	return true
+}
+
+func (p *singleNUMAPolicy) isCrossNUMANode(nodeId int) bool {
+	for _, group := range p.crossNUMAGroups {
+		for _, groupNode := range group {
+			if nodeId == groupNode {
+				return true
 			}
 		}
 	}
-
-	return hints
+	return false
 }
 
 func (p *singleNUMAPolicy) validateState(s state.State) error {
@@ -356,36 +472,21 @@ func (p *singleNUMAPolicy) validateResourceReservedMemory(assignmentsMemory map[
 	return nil
 }
 
-func getDefaultNUMAAffinity(s state.State, container *v1.Container) (bitmask.BitMask, error) {
-	machineState := s.GetMachineState()
+func (p *singleNUMAPolicy) getDefaultNUMAAffinity(s state.State, container *v1.Container, preferred bool) (bitmask.BitMask, error) {
+	requestedResources, err := getRequestedResources(container)
+	if err != nil {
+		return nil, err
+	}
 
-	var nodeID = -1
-	for id, nodeState := range machineState {
-		for resourceName, q := range container.Resources.Requests {
-			if resourceName != v1.ResourceMemory && !corehelper.IsHugePageResourceName(resourceName) {
-				continue
-			}
+	hints := p.calculateHints(s, requestedResources)
 
-			size, succeed := q.AsInt64()
-			if !succeed {
-				return nil, fmt.Errorf("[memorymanager] failed to represent quantity as int64")
-			}
-
-			resourceState := nodeState.MemoryMap[resourceName]
-			if resourceState.Free < uint64(size) {
-				nodeID = -1
-				break
-			}
-			nodeID = id
-		}
-
-		if nodeID != -1 {
-			defaultNUMAAffinity, err := bitmask.NewBitMask(nodeID)
-			if err != nil {
-				return nil, err
-			}
-			return defaultNUMAAffinity, nil
+	// hints for all memory types should be the same, so we will check hints only for regular memory type
+	for _, hint := range hints[string(v1.ResourceMemory)] {
+		// get first hint that fit to the preferred parameter
+		if hint.Preferred || hint.Preferred == preferred {
+			return hint.NUMANodeAffinity, nil
 		}
 	}
+
 	return nil, fmt.Errorf("[memorymanager] failed to get the default NUMA affinity, no NUMA nodes with enough memory is available")
 }

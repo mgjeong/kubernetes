@@ -344,6 +344,12 @@ type KubeletConfiguration struct {
 	// The purpose of this format is make sure you have the opportunity to notice if the next release hides additional metrics,
 	// rather than being surprised when they are permanently removed in the release after that.
 	ShowHiddenMetricsForVersion string
+	// A comma separated list of bracket-enclosed configurations for memory manager.
+	// Each configuration describes pre-reserved memory for the particular memory type on a specific NUMA node.
+	// The Memory Manager validates whether total amount of pre-reserved memory is identical to reserved-memory by the Node Allocatable feature.
+	// The format is {numa-node=integer, memory-type=string, limit=string}
+	// (e.g. {numa-node=0, memory-type=memory, limit=1Gi}, {numa-node=1, memory-type=memory, limit=1Gi})
+	PreReservedMemoryZone []map[string]string
 }
 
 // KubeletAuthorizationMode denotes the authorization mode for the kubelet

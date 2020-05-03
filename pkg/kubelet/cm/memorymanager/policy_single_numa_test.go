@@ -65,7 +65,7 @@ var (
 	}
 )
 
-func isMemoryBlocksEqual(mb1, mb2 []state.Block) bool {
+func areMemoryBlocksEqual(mb1, mb2 []state.Block) bool {
 	if len(mb1) != len(mb2) {
 		return false
 	}
@@ -75,7 +75,7 @@ func isMemoryBlocksEqual(mb1, mb2 []state.Block) bool {
 	for _, block := range mb1 {
 		for i, copyBlock := range copyMemoryBlocks {
 			if reflect.DeepEqual(block, copyBlock) {
-				// move the element that equal to the block to the end of the slice
+				// move the element that equals to the block to the end of the slice
 				copyMemoryBlocks[i] = copyMemoryBlocks[len(copyMemoryBlocks)-1]
 
 				// remove the last element from our slice
@@ -89,7 +89,7 @@ func isMemoryBlocksEqual(mb1, mb2 []state.Block) bool {
 	return len(copyMemoryBlocks) == 0
 }
 
-func isContainerMemoryAssignmentsEqual(cma1, cma2 state.ContainerMemoryAssignments) bool {
+func areContainerMemoryAssignmentsEqual(cma1, cma2 state.ContainerMemoryAssignments) bool {
 	if len(cma1) != len(cma2) {
 		return false
 	}
@@ -104,7 +104,7 @@ func isContainerMemoryAssignmentsEqual(cma1, cma2 state.ContainerMemoryAssignmen
 				return false
 			}
 
-			if !isMemoryBlocksEqual(memoryBlocks, cma2[podUID][containerName]) {
+			if !areMemoryBlocksEqual(memoryBlocks, cma2[podUID][containerName]) {
 				return false
 			}
 		}
@@ -118,11 +118,19 @@ type testSingleNUMAPolicy struct {
 	expectedAssignments   state.ContainerMemoryAssignments
 	machineState          state.MemoryMap
 	expectedMachineState  state.MemoryMap
-	reserved              reservedMemory
+	systemReserved        systemReservedMemory
 	expectedError         error
 	machineInfo           *cadvisorapi.MachineInfo
 	pod                   *v1.Pod
 	expectedTopologyHints map[string][]topologymanager.TopologyHint
+}
+
+func initTests(testCase *testSingleNUMAPolicy) (Policy, state.State) {
+	p := NewPolicySingleNUMA(testCase.machineInfo, testCase.systemReserved, topologymanager.NewFakeManager())
+	s := state.NewMemoryState()
+	s.SetMachineState(testCase.machineState)
+	s.SetMemoryAssignments(testCase.assignments)
+	return p, s
 }
 
 func TestSingleNUMAPolicyStart(t *testing.T) {
@@ -140,7 +148,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 					},
 				},
 			},
-			expectedError: fmt.Errorf("[memorymanager] machine state can not be empty, when it has memory assignments"),
+			expectedError: fmt.Errorf("[memorymanager] machine state can not be empty when it has memory assignments"),
 		},
 		{
 			description:         "should fill the state with default values, when the state is empty",
@@ -163,7 +171,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 					},
 				},
 			},
-			reserved: reservedMemory{
+			systemReserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 512 * mb,
 				},
@@ -204,7 +212,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 					},
 				},
 			},
-			reserved: reservedMemory{
+			systemReserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 512 * mb,
 				},
@@ -265,7 +273,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 					},
 				},
 			},
-			expectedError: fmt.Errorf("[memorymanager] machine state does not have resource memory"),
+			expectedError: fmt.Errorf("[memorymanager] machine state does not have memory resource"),
 		},
 		{
 			description: "should fail when machine state has wrong size of total memory",
@@ -280,7 +288,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 					},
 				},
 			},
-			reserved: reservedMemory{
+			systemReserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 512 * mb,
 				},
@@ -303,19 +311,19 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 			expectedError: fmt.Errorf("[memorymanager] machine state has different size of the total memory"),
 		},
 		{
-			description: "should fail when machine state has wrong size of system reserved memory",
+			description: "should fail when machine state has wrong size of the system reserved memory",
 			machineState: state.MemoryMap{
 				0: map[v1.ResourceName]*state.MemoryTable{
 					v1.ResourceMemory: {
 						Allocatable:    1536 * mb,
 						Free:           1536 * mb,
 						Reserved:       0,
-						SystemReserved: 1024,
+						SystemReserved: 1024 * mb,
 						TotalMemSize:   2 * gb,
 					},
 				},
 			},
-			reserved: reservedMemory{
+			systemReserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 512 * mb,
 				},
@@ -338,7 +346,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 			expectedError: fmt.Errorf("[memorymanager] machine state has different size of the system reserved memory"),
 		},
 		{
-			description: "should fail when machine state reserved memory is different from memory of all containers memory assignments",
+			description: "should fail when machine state reserved memory is different from the memory of all containers memory assignments",
 			assignments: state.ContainerMemoryAssignments{
 				"pod": map[string][]state.Block{
 					"container1": {
@@ -361,7 +369,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 					},
 				},
 			},
-			reserved: reservedMemory{
+			systemReserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 512 * mb,
 				},
@@ -381,7 +389,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 					},
 				},
 			},
-			expectedError: fmt.Errorf("[memorymanager] memory reserved by containers different from the machine state reserved"),
+			expectedError: fmt.Errorf("[memorymanager] memory reserved by containers differs from the machine state reserved"),
 		},
 		{
 			description: "should fail when machine state has wrong size of hugepages",
@@ -403,7 +411,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 					},
 				},
 			},
-			reserved: reservedMemory{
+			systemReserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 512 * mb,
 				},
@@ -426,7 +434,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 			expectedError: fmt.Errorf("[memorymanager] machine state has different size of the total hugepages-1Gi"),
 		},
 		{
-			description: "should fail when machine state has wrong size of system reserved hugepages",
+			description: "should fail when machine state has wrong size of the system reserved hugepages",
 			machineState: state.MemoryMap{
 				0: map[v1.ResourceName]*state.MemoryTable{
 					v1.ResourceMemory: {
@@ -445,7 +453,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 					},
 				},
 			},
-			reserved: reservedMemory{
+			systemReserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 512 * mb,
 				},
@@ -468,7 +476,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 			expectedError: fmt.Errorf("[memorymanager] machine state has different size of the system reserved hugepages-1Gi"),
 		},
 		{
-			description: "should fail when machine state reserved hugepages is different from hugepages of all containers memory assignments",
+			description: "should fail when the hugepages reserved machine state is different from the hugepages of all containers memory assignments",
 			assignments: state.ContainerMemoryAssignments{
 				"pod1": map[string][]state.Block{
 					"container1": {
@@ -507,7 +515,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 					},
 				},
 			},
-			reserved: reservedMemory{
+			systemReserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 512 * mb,
 				},
@@ -527,16 +535,13 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 					},
 				},
 			},
-			expectedError: fmt.Errorf("[memorymanager] hugepages-1Gi reserved by containers different from the machine state reserved"),
+			expectedError: fmt.Errorf("[memorymanager] hugepages-1Gi reserved by containers differs from the machine state reserved"),
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.description, func(t *testing.T) {
-			p := NewPolicySingleNUMA(testCase.machineInfo, testCase.reserved, topologymanager.NewFakeManager())
-			s := state.NewMemoryState()
-			s.SetMachineState(testCase.machineState)
-			s.SetMemoryAssignments(testCase.assignments)
+			p, s := initTests(&testCase)
 
 			err := p.Start(s)
 			if !reflect.DeepEqual(err, testCase.expectedError) {
@@ -548,7 +553,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 			}
 
 			assignments := s.GetMemoryAssignments()
-			if !isContainerMemoryAssignmentsEqual(assignments, testCase.expectedAssignments) {
+			if !areContainerMemoryAssignmentsEqual(assignments, testCase.expectedAssignments) {
 				t.Errorf("Actual assignments: %v is different from the expected one: %v", assignments, testCase.expectedAssignments)
 			}
 
@@ -601,12 +606,13 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 					},
 				},
 			},
-			reserved: reservedMemory{
+			systemReserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 512 * mb,
 				},
 			},
-			pod: getPod("pod1", "container1", requirementsBurstable),
+			pod:                   getPod("pod1", "container1", requirementsBurstable),
+			expectedTopologyHints: nil,
 		},
 		{
 			description: "should do nothing once container already exists under the state file",
@@ -668,15 +674,16 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 					},
 				},
 			},
-			reserved: reservedMemory{
+			systemReserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 512 * mb,
 				},
 			},
-			pod: getPod("pod1", "container1", requirementsGuaranteed),
+			pod:                   getPod("pod1", "container1", requirementsGuaranteed),
+			expectedTopologyHints: nil,
 		},
 		{
-			description: "should calculate default topology hint when no hint provided by topology manager",
+			description: "should calculate a default topology hint when no hint is provided by topology manager",
 			assignments: state.ContainerMemoryAssignments{},
 			expectedAssignments: state.ContainerMemoryAssignments{
 				"pod1": map[string][]state.Block{
@@ -730,7 +737,7 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 					},
 				},
 			},
-			reserved: reservedMemory{
+			systemReserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 512 * mb,
 				},
@@ -741,14 +748,11 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.description, func(t *testing.T) {
-			p := NewPolicySingleNUMA(testCase.machineInfo, testCase.reserved, topologymanager.NewFakeManager())
-			s := state.NewMemoryState()
-			s.SetMachineState(testCase.machineState)
-			s.SetMemoryAssignments(testCase.assignments)
+			p, s := initTests(&testCase)
 
 			err := p.Allocate(s, testCase.pod, &testCase.pod.Spec.Containers[0])
 			if !reflect.DeepEqual(err, testCase.expectedError) {
-				t.Errorf("The actual error %v different from the expected one %v", err, testCase.expectedError)
+				t.Errorf("The actual error %v is different from the expected one %v", err, testCase.expectedError)
 			}
 
 			if err != nil {
@@ -756,13 +760,13 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 			}
 
 			assignments := s.GetMemoryAssignments()
-			if !isContainerMemoryAssignmentsEqual(assignments, testCase.expectedAssignments) {
-				t.Errorf("Actual assignments %v different from the expected %v", assignments, testCase.expectedAssignments)
+			if !areContainerMemoryAssignmentsEqual(assignments, testCase.expectedAssignments) {
+				t.Errorf("Actual assignments %v are different from the expected %v", assignments, testCase.expectedAssignments)
 			}
 
 			machineState := s.GetMachineState()
 			if !reflect.DeepEqual(machineState, testCase.expectedMachineState) {
-				t.Errorf("The actual machine state %v different from the expected %v", machineState, testCase.expectedMachineState)
+				t.Errorf("The actual machine state %v is different from the expected %v", machineState, testCase.expectedMachineState)
 			}
 		})
 	}
@@ -809,7 +813,7 @@ func TestSingleNUMAPolicyRemoveContainer(t *testing.T) {
 					},
 				},
 			},
-			reserved: reservedMemory{
+			systemReserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 512 * mb,
 				},
@@ -870,7 +874,7 @@ func TestSingleNUMAPolicyRemoveContainer(t *testing.T) {
 					},
 				},
 			},
-			reserved: reservedMemory{
+			systemReserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 512 * mb,
 				},
@@ -880,14 +884,11 @@ func TestSingleNUMAPolicyRemoveContainer(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.description, func(t *testing.T) {
-			p := NewPolicySingleNUMA(testCase.machineInfo, testCase.reserved, topologymanager.NewFakeManager())
-			s := state.NewMemoryState()
-			s.SetMachineState(testCase.machineState)
-			s.SetMemoryAssignments(testCase.assignments)
+			p, s := initTests(&testCase)
 
 			err := p.RemoveContainer(s, "pod1", "container1")
 			if !reflect.DeepEqual(err, testCase.expectedError) {
-				t.Errorf("The actual error %v different from the expected one %v", err, testCase.expectedError)
+				t.Errorf("The actual error %v is different from the expected one %v", err, testCase.expectedError)
 			}
 
 			if err != nil {
@@ -895,13 +896,13 @@ func TestSingleNUMAPolicyRemoveContainer(t *testing.T) {
 			}
 
 			assignments := s.GetMemoryAssignments()
-			if !isContainerMemoryAssignmentsEqual(assignments, testCase.expectedAssignments) {
-				t.Errorf("Actual assignments %v different from the expected %v", assignments, testCase.expectedAssignments)
+			if !areContainerMemoryAssignmentsEqual(assignments, testCase.expectedAssignments) {
+				t.Errorf("Actual assignments %v are different from the expected %v", assignments, testCase.expectedAssignments)
 			}
 
 			machineState := s.GetMachineState()
 			if !reflect.DeepEqual(machineState, testCase.expectedMachineState) {
-				t.Errorf("The actual machine state %v different from the expected %v", machineState, testCase.expectedMachineState)
+				t.Errorf("The actual machine state %v is different from the expected %v", machineState, testCase.expectedMachineState)
 			}
 		})
 	}
@@ -920,8 +921,9 @@ func TestSingleNUMAPolicyGetTopologyHints(t *testing.T) {
 
 	testCases := []testSingleNUMAPolicy{
 		{
-			description: "should do provide topology hints for non-guaranteed pods",
-			pod:         getPod("pod1", "container1", requirementsBurstable),
+			description:           "should not provide topology hints for non-guaranteed pods",
+			pod:                   getPod("pod1", "container1", requirementsBurstable),
+			expectedTopologyHints: nil,
 		},
 		{
 			description: "should provide topology hints based on the existent memory assignment",
@@ -959,8 +961,7 @@ func TestSingleNUMAPolicyGetTopologyHints(t *testing.T) {
 		},
 		{
 			description: "should calculate new topology hints, when the container does not exist under assignments",
-			assignments: state.ContainerMemoryAssignments{},
-			expectedAssignments: state.ContainerMemoryAssignments{
+			assignments: state.ContainerMemoryAssignments{
 				"pod1": map[string][]state.Block{
 					"container1": {
 						{
@@ -1030,14 +1031,11 @@ func TestSingleNUMAPolicyGetTopologyHints(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.description, func(t *testing.T) {
-			p := NewPolicySingleNUMA(testCase.machineInfo, testCase.reserved, topologymanager.NewFakeManager())
-			s := state.NewMemoryState()
-			s.SetMachineState(testCase.machineState)
-			s.SetMemoryAssignments(testCase.assignments)
+			p, s := initTests(&testCase)
 
 			topologyHints := p.GetTopologyHints(s, testCase.pod, &testCase.pod.Spec.Containers[0])
 			if !reflect.DeepEqual(topologyHints, testCase.expectedTopologyHints) {
-				t.Errorf("The actual topology hints: '%v' different from the expected one: '%v'", topologyHints, testCase.expectedTopologyHints)
+				t.Errorf("The actual topology hints: '%+v' are different from the expected one: '%+v'", topologyHints, testCase.expectedTopologyHints)
 			}
 		})
 	}

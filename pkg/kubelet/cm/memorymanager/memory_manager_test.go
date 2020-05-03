@@ -143,21 +143,21 @@ func TestValidatePreReservedMemory(t *testing.T) {
 func TestConvertPreReserved(t *testing.T) {
 	machineInfo := info.MachineInfo{
 		Topology: []info.Node{
-			info.Node{Id: 0},
-			info.Node{Id: 1},
+			{Id: 0},
+			{Id: 1},
 		},
 	}
 
 	testCases := []struct {
-		description      string
-		reserved         map[int]map[v1.ResourceName]resource.Quantity
-		reservedExpected reservedMemory
-		expectedError    string
+		description            string
+		systemReserved         map[int]map[v1.ResourceName]resource.Quantity
+		systemReservedExpected systemReservedMemory
+		expectedError          string
 	}{
 		{
 			"Empty",
 			map[int]map[v1.ResourceName]resource.Quantity{},
-			reservedMemory{
+			systemReservedMemory{
 				0: map[v1.ResourceName]uint64{},
 				1: map[v1.ResourceName]uint64{},
 			},
@@ -170,7 +170,7 @@ func TestConvertPreReserved(t *testing.T) {
 					hugepages2M: *resource.NewQuantity(70, resource.DecimalSI),
 					hugepages1G: *resource.NewQuantity(13, resource.DecimalSI)},
 			},
-			reservedMemory{
+			systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 12,
 					hugepages2M:       70,
@@ -189,7 +189,7 @@ func TestConvertPreReserved(t *testing.T) {
 				1: nodeResources{v1.ResourceMemory: *resource.NewQuantity(5, resource.DecimalSI),
 					hugepages2M: *resource.NewQuantity(7, resource.DecimalSI)},
 			},
-			reservedMemory{
+			systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 12,
 					hugepages2M:       70,
@@ -206,9 +206,9 @@ func TestConvertPreReserved(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			reserved, _ := convertPreReserved(&machineInfo, tc.reserved)
-			if !reflect.DeepEqual(reserved, tc.reservedExpected) {
-				t.Errorf("got %v, expected %v", reserved, tc.reservedExpected)
+			reserved, _ := convertPreReserved(&machineInfo, tc.systemReserved)
+			if !reflect.DeepEqual(reserved, tc.systemReservedExpected) {
+				t.Errorf("got %v, expected %v", reserved, tc.systemReservedExpected)
 			}
 		})
 	}

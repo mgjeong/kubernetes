@@ -33,9 +33,7 @@ import (
 
 const policyTypeSingleNUMA policyType = "single-numa"
 
-// TODO: need to implement all methods
-
-type reservedMemory map[int]map[v1.ResourceName]uint64
+type systemReservedMemory map[int]map[v1.ResourceName]uint64
 
 // SingleNUMAPolicy is implementation of the policy interface for the single NUMA policy
 // TODO: need to re-evaluate what field we really need
@@ -43,7 +41,7 @@ type singleNUMAPolicy struct {
 	// machineInfo contains machine memory related information
 	machineInfo *cadvisorapi.MachineInfo
 	// reserved contains memory that reserved for kube
-	systemReserved reservedMemory
+	systemReserved systemReservedMemory
 	// topology manager reference to get container Topology affinity
 	affinity topologymanager.Store
 }
@@ -51,7 +49,7 @@ type singleNUMAPolicy struct {
 var _ Policy = &singleNUMAPolicy{}
 
 // NewPolicySingleNUMA returns new single NUMA policy instance
-func NewPolicySingleNUMA(machineInfo *cadvisorapi.MachineInfo, reserved reservedMemory, affinity topologymanager.Store) Policy {
+func NewPolicySingleNUMA(machineInfo *cadvisorapi.MachineInfo, reserved systemReservedMemory, affinity topologymanager.Store) Policy {
 	// TODO: check if we have enough reserved memory for the system
 	//for _, node := range reserved {
 	//	if node[v1.ResourceMemory] == 0 {
@@ -241,7 +239,7 @@ func (p *singleNUMAPolicy) validateState(s state.State) error {
 	if len(machineState) == 0 {
 		// Machine state cannot be empty when assignments exist
 		if len(memoryAssignments) != 0 {
-			return fmt.Errorf("[memorymanager] machine state can not be empty, when it has memory assignments")
+			return fmt.Errorf("[memorymanager] machine state can not be empty when it has memory assignments")
 		}
 		for _, node := range p.machineInfo.Topology {
 			// fill memory table with regular memory values
@@ -262,11 +260,11 @@ func (p *singleNUMAPolicy) validateState(s state.State) error {
 				resourceName := corehelper.HugePageResourceName(*hugepageQuantity)
 				// TODO: once it will be possible to reserve huge pages for system usage, we should update values
 				machineState[node.Id][resourceName] = &state.MemoryTable{
-					TotalMemSize:   hugepage.NumPages,
+					TotalMemSize:   hugepage.NumPages * hugepage.PageSize * 1024,
 					SystemReserved: 0,
-					Allocatable:    hugepage.NumPages,
+					Allocatable:    hugepage.NumPages * hugepage.PageSize * 1024,
 					Reserved:       0,
-					Free:           hugepage.NumPages,
+					Free:           hugepage.NumPages * hugepage.PageSize * 1024,
 				}
 			}
 		}
@@ -310,14 +308,15 @@ func (p *singleNUMAPolicy) validateState(s state.State) error {
 		for _, hugepage := range node.HugePages {
 			hugepageQuantity := resource.NewQuantity(int64(hugepage.PageSize)*1024, resource.BinarySI)
 			resourceName := corehelper.HugePageResourceName(*hugepageQuantity)
+			expectedTotal := hugepage.NumPages * hugepage.PageSize * 1024
 
 			// validated that machine state memory values equals to node values
-			if err := p.validateResourceMemory(&node, hugepage.NumPages, machineMemory, resourceName); err != nil {
+			if err := p.validateResourceMemory(&node, expectedTotal, machineMemory, resourceName); err != nil {
 				return err
 			}
 
 			// validate that memory assigned to containers equals to reserved one under the machine state
-			if err := p.validateResourceReservedMemory(assignmentsMemory[node.Id], machineMemory, v1.ResourceMemory); err != nil {
+			if err := p.validateResourceReservedMemory(assignmentsMemory[node.Id], machineMemory, resourceName); err != nil {
 				return err
 			}
 		}
@@ -329,7 +328,7 @@ func (p *singleNUMAPolicy) validateState(s state.State) error {
 func (p *singleNUMAPolicy) validateResourceMemory(node *cadvisorapi.Node, expectedTotal uint64, machineMemory map[v1.ResourceName]*state.MemoryTable, resourceName v1.ResourceName) error {
 	resourceSize, ok := machineMemory[resourceName]
 	if !ok {
-		return fmt.Errorf("[memorymanager] machine state does not have resource %s", resourceName)
+		return fmt.Errorf("[memorymanager] machine state does not have %s resource", resourceName)
 	}
 
 	if expectedTotal != resourceSize.TotalMemSize {
@@ -344,7 +343,7 @@ func (p *singleNUMAPolicy) validateResourceMemory(node *cadvisorapi.Node, expect
 
 func (p *singleNUMAPolicy) validateResourceReservedMemory(assignmentsMemory map[v1.ResourceName]uint64, machineMemory map[v1.ResourceName]*state.MemoryTable, resourceName v1.ResourceName) error {
 	if assignmentsMemory[resourceName] != machineMemory[resourceName].Reserved {
-		return fmt.Errorf("[memorymanager] memory reserved by containers different from the machine state reserved")
+		return fmt.Errorf("[memorymanager] %s reserved by containers differs from the machine state reserved", resourceName)
 	}
 	return nil
 }

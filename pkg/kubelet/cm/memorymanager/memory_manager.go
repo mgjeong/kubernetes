@@ -128,11 +128,11 @@ func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAll
 		policy = NewPolicyNone()
 
 	case policyTypeSingleNUMA:
-		reserved, err := getReservedMemory(machineInfo, nodeAllocatableReservation, preReservedMemory)
+		systemReserved, err := getSystemReservedMemory(machineInfo, nodeAllocatableReservation, preReservedMemory)
 		if err != nil {
 			return nil, err
 		}
-		policy = NewPolicySingleNUMA(machineInfo, reserved, affinity)
+		policy = NewPolicySingleNUMA(machineInfo, systemReserved, affinity)
 
 	default:
 		return nil, fmt.Errorf("unknown policy: \"%s\"", policyName)
@@ -359,7 +359,7 @@ func validatePreReservedMemory(nodeAllocatableReservation v1.ResourceList, preRe
 	return nil
 }
 
-func convertPreReserved(machineInfo *cadvisorapi.MachineInfo, preReservedMemory map[int]map[v1.ResourceName]resource.Quantity) (reservedMemory, error) {
+func convertPreReserved(machineInfo *cadvisorapi.MachineInfo, preReservedMemory map[int]map[v1.ResourceName]resource.Quantity) (systemReservedMemory, error) {
 	preReservedMemoryConverted := make(map[int]map[v1.ResourceName]uint64)
 	for _, node := range machineInfo.Topology {
 		preReservedMemoryConverted[node.Id] = make(map[v1.ResourceName]uint64)
@@ -379,7 +379,7 @@ func convertPreReserved(machineInfo *cadvisorapi.MachineInfo, preReservedMemory 
 	return preReservedMemoryConverted, nil
 }
 
-func getReservedMemory(machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, preReservedMemory map[int]map[v1.ResourceName]resource.Quantity) (reservedMemory, error) {
+func getSystemReservedMemory(machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, preReservedMemory map[int]map[v1.ResourceName]resource.Quantity) (systemReservedMemory, error) {
 	if err := validatePreReservedMemory(nodeAllocatableReservation, preReservedMemory); err != nil {
 		return nil, err
 	}

@@ -18,6 +18,7 @@ package memorymanager
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 
 	cadvisorapi "github.com/google/cadvisor/info/v1"
@@ -51,18 +52,25 @@ type singleNUMAPolicy struct {
 var _ Policy = &singleNUMAPolicy{}
 
 // NewPolicySingleNUMA returns new single NUMA policy instance
-func NewPolicySingleNUMA(machineInfo *cadvisorapi.MachineInfo, reserved systemReservedMemory, affinity topologymanager.Store) Policy {
-	// TODO: check if we have enough reserved memory for the system
-	//for _, node := range reserved {
-	//	if node[v1.ResourceMemory] == 0 {
-	//
-	//	}
-	//}
+func NewPolicySingleNUMA(machineInfo *cadvisorapi.MachineInfo, reserved systemReservedMemory, affinity topologymanager.Store) (Policy, error) {
+	var totalSystemReserved uint64
+	for _, node := range reserved {
+		if _, ok := node[v1.ResourceMemory]; !ok {
+			continue
+		}
+		totalSystemReserved += node[v1.ResourceMemory]
+	}
+
+	// check if we have some reserved memory for the system
+	if totalSystemReserved <= 0 {
+		return nil, fmt.Errorf("[memorymanager] you should specify the memory reserved for the system")
+	}
+
 	return &singleNUMAPolicy{
 		machineInfo:    machineInfo,
 		systemReserved: reserved,
 		affinity:       affinity,
-	}
+	}, nil
 }
 
 func (p *singleNUMAPolicy) Name() string {
@@ -94,43 +102,78 @@ func (p *singleNUMAPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Co
 	hint := p.affinity.GetAffinity(string(pod.UID), container.Name)
 	klog.Infof("[memorymanager] Pod %v, Container %v Topology Affinity is: %v", pod.UID, container.Name, hint)
 
-	var affinityBits []int
-	// it can happen, when the best hint includes all NUMA nodes and memory manager enabled, it can happen
-	// only under the topology manager best-effort or none policy
+	requestedResources, err := getRequestedResources(container)
+	if err != nil {
+		return err
+	}
+
+	bestHint := &hint
+	// topology manager returned the hint with NUMA affinity nil
+	// we should use the default NUMA affinity calculated the same way as for the topology manager
 	if hint.NUMANodeAffinity == nil {
-		defaultAffinity, err := p.getDefaultNUMAAffinity(s, container, hint.Preferred)
+		defaultHint, err := p.getDefaultHint(s, requestedResources)
 		if err != nil {
 			return err
 		}
-		affinityBits = defaultAffinity.GetBits()
-	} else {
-		affinityBits = hint.NUMANodeAffinity.GetBits()
+
+		if !defaultHint.Preferred && bestHint.Preferred {
+			return fmt.Errorf("[memorymanager] failed to find the default preferred hint")
+		}
+		bestHint = defaultHint
 	}
 
 	machineState := s.GetMachineState()
 
+	// topology manager returns the hint that does not satisfy completely the container request
+	// we should extend this hint to the one who will satisfy the request and include the current hint
+	if !isAffinitySatisfyRequest(machineState, bestHint.NUMANodeAffinity, requestedResources) {
+		extendedHint, err := p.extendTopologyManagerHint(s, requestedResources, bestHint.NUMANodeAffinity)
+		if err != nil {
+			return err
+		}
+
+		if !extendedHint.Preferred && bestHint.Preferred {
+			return fmt.Errorf("[memorymanager] failed to find the extended preferred hint")
+		}
+		bestHint = extendedHint
+	}
+
 	var containerBlocks []state.Block
-	for resourceName, q := range container.Resources.Requests {
-		if resourceName != v1.ResourceMemory && !corehelper.IsHugePageResourceName(resourceName) {
-			continue
-		}
+	maskBits := bestHint.NUMANodeAffinity.GetBits()
+	for resourceName, requestedSize := range requestedResources {
+		// Update nodes memory state
+		for _, nodeId := range maskBits {
+			// update the node memory state
+			nodeResourceMemoryState := machineState[nodeId].MemoryMap[resourceName]
+			if nodeResourceMemoryState.Free <= 0 {
+				continue
+			}
 
-		size, succeed := q.AsInt64()
-		if !succeed {
-			return fmt.Errorf("[memorymanager] failed to represent quantity as int64")
-		}
+			// the node has enough memory to satisfy the request
+			if nodeResourceMemoryState.Free >= requestedSize {
+				nodeResourceMemoryState.Reserved += requestedSize
+				nodeResourceMemoryState.Free -= requestedSize
+				break
+			}
 
-		// update the machine state
-		nodeResourceMemoryState := machineState[affinityBits[0]].MemoryMap[resourceName]
-		nodeResourceMemoryState.Reserved += uint64(size)
-		nodeResourceMemoryState.Free -= uint64(size)
+			// the node does not have enough memory, use the node remaining memory and move to the next node
+			requestedSize -= nodeResourceMemoryState.Free
+			nodeResourceMemoryState.Reserved += nodeResourceMemoryState.Free
+			nodeResourceMemoryState.Free = 0
+		}
 
 		// update memory blocks
 		containerBlocks = append(containerBlocks, state.Block{
-			NUMAAffinity: affinityBits,
-			Size:         uint64(size),
+			NUMAAffinity: bestHint.NUMANodeAffinity.GetBits(),
+			Size:         requestedSize,
 			Type:         resourceName,
 		})
+	}
+
+	// Update each node number of assignments and group
+	for _, nodeId := range maskBits {
+		machineState[nodeId].NumberOfAssignments++
+		machineState[nodeId].Nodes = maskBits
 	}
 
 	s.SetMachineState(machineState)
@@ -252,26 +295,23 @@ func (p *singleNUMAPolicy) calculateHints(s state.State, requestedResources map[
 		maskBits := mask.GetBits()
 		singleNUMAHint := len(maskBits) == 1
 
-		// the node already in group with another node, it can not be used for the single NUMA node hint
-		if singleNUMAHint && len(machineState[maskBits[0]].Nodes) != 0 {
+		// the node already in group with another node, it can not be used for the single NUMA node allocation
+		if singleNUMAHint && len(machineState[maskBits[0]].Nodes) > 1 {
 			return
 		}
 
 		totalFreeSize := map[v1.ResourceName]uint64{}
 		// calculate total free memory for the node mask
 		for _, nodeId := range maskBits {
-			// the node already used for memory assignment
+			// the node already used for the memory allocation
 			if !singleNUMAHint && machineState[nodeId].NumberOfAssignments != 0 {
-				// the node used for the single NUMA memory allocation, it can be used for cross NUMA hint
-				if len(machineState[nodeId].Nodes) == 0 {
+				// the node used for the single NUMA memory allocation, it can be used for the cross NUMA node allocation
+				if len(machineState[nodeId].Nodes) == 1 {
 					return
 				}
 
-				nodeGroup := []int{nodeId}
-				nodeGroup = append(nodeGroup, machineState[nodeId].Nodes...)
-
 				// the node already used with different group of nodes, it can not be use with in the current hint
-				if !areGroupsEqual(nodeGroup, maskBits) {
+				if !areGroupsEqual(machineState[nodeId].Nodes, maskBits) {
 					return
 				}
 			}
@@ -359,94 +399,159 @@ func (p *singleNUMAPolicy) validateState(s state.State) error {
 		if len(memoryAssignments) != 0 {
 			return fmt.Errorf("[memorymanager] machine state can not be empty when it has memory assignments")
 		}
-		for _, node := range p.machineInfo.Topology {
-			// fill memory table with regular memory values
-			allocatable := node.Memory - p.systemReserved[node.Id][v1.ResourceMemory]
-			machineState[node.Id] = &state.NodeState{
-				NumberOfAssignments: 0,
-				MemoryMap: map[v1.ResourceName]*state.MemoryTable{
-					v1.ResourceMemory: {
-						Allocatable:    allocatable,
-						Free:           allocatable,
-						Reserved:       0,
-						SystemReserved: p.systemReserved[node.Id][v1.ResourceMemory],
-						TotalMemSize:   node.Memory,
-					},
-				},
-				Nodes: []int{},
-			}
 
-			// fill memory table with huge pages values
-			for _, hugepage := range node.HugePages {
-				hugepageQuantity := resource.NewQuantity(int64(hugepage.PageSize)*1024, resource.BinarySI)
-				resourceName := corehelper.HugePageResourceName(*hugepageQuantity)
-				// TODO: once it will be possible to reserve huge pages for system usage, we should update values
-				machineState[node.Id].MemoryMap[resourceName] = &state.MemoryTable{
-					TotalMemSize:   hugepage.NumPages * hugepage.PageSize * 1024,
-					SystemReserved: 0,
-					Allocatable:    hugepage.NumPages * hugepage.PageSize * 1024,
-					Reserved:       0,
-					Free:           hugepage.NumPages * hugepage.PageSize * 1024,
-				}
-			}
-		}
-		s.SetMachineState(machineState)
+		defaultMachineState := p.getDefaultMachineState()
+		s.SetMachineState(defaultMachineState)
+
 		return nil
 	}
 
 	// calculate all memory assigned to containers
-	assignmentsMemory := map[int]map[v1.ResourceName]uint64{}
-	for _, container := range memoryAssignments {
-		for _, blocks := range container {
+	expectedMachineState := p.getDefaultMachineState()
+	for pod, container := range memoryAssignments {
+		for containerName, blocks := range container {
 			for _, b := range blocks {
+				requestedSize := b.Size
 				for _, nodeId := range b.NUMAAffinity {
-					if _, ok := assignmentsMemory[nodeId]; !ok {
-						assignmentsMemory[nodeId] = map[v1.ResourceName]uint64{}
+					nodeState, ok := expectedMachineState[nodeId]
+					if !ok {
+						return fmt.Errorf("[memorymanager] (pod: %s, container: %s) the memory assignment uses the NUMA that does not exist", pod, containerName)
 					}
 
-					if _, ok := assignmentsMemory[nodeId][b.Type]; !ok {
-						assignmentsMemory[nodeId][b.Type] = 0
+					if nodeState.NumberOfAssignments != 0 && !areGroupsEqual(nodeState.Nodes, b.NUMAAffinity) {
+						return fmt.Errorf("[memorymanager] node state group %v and container NUMA affinity %v are different", nodeState.Nodes, b.NUMAAffinity)
 					}
-					assignmentsMemory[nodeId][b.Type] += b.Size
+					nodeState.NumberOfAssignments++
+					nodeState.Nodes = b.NUMAAffinity
+
+					memoryState, ok := nodeState.MemoryMap[b.Type]
+					if !ok {
+						return fmt.Errorf("[memorymanager] (pod: %s, container: %s) the memory assignment uses memory resource that does not exist", pod, containerName)
+					}
+
+					// this node does not have enough memory continue to the next one
+					if memoryState.Free <= 0 {
+						continue
+					}
+
+					// the node has enough memory to satisfy the request
+					if memoryState.Free >= requestedSize {
+						memoryState.Reserved += requestedSize
+						memoryState.Free -= requestedSize
+						break
+					}
+
+					// the node does not have enough memory, use the node remaining memory and move to the next node
+					requestedSize -= memoryState.Free
+					memoryState.Reserved += memoryState.Free
+					memoryState.Free = 0
 				}
 			}
 		}
 	}
 
-	for _, node := range p.machineInfo.Topology {
-		nodeState, ok := machineState[node.Id]
-		if !ok {
-			return fmt.Errorf("[memorymanager] machine state does not have NUMA node %d", node.Id)
-		}
-
-		// validated that machine state memory values equals to node values
-		if err := p.validateResourceMemory(&node, node.Memory, nodeState.MemoryMap, v1.ResourceMemory); err != nil {
-			return err
-		}
-
-		// validate that memory assigned to containers equals to reserved one under the machine state
-		if err := p.validateResourceReservedMemory(assignmentsMemory[node.Id], nodeState.MemoryMap, v1.ResourceMemory); err != nil {
-			return err
-		}
-
-		for _, hugepage := range node.HugePages {
-			hugepageQuantity := resource.NewQuantity(int64(hugepage.PageSize)*1024, resource.BinarySI)
-			resourceName := corehelper.HugePageResourceName(*hugepageQuantity)
-			expectedTotal := hugepage.NumPages * hugepage.PageSize * 1024
-
-			// validated that machine state memory values equals to node values
-			if err := p.validateResourceMemory(&node, expectedTotal, nodeState.MemoryMap, resourceName); err != nil {
-				return err
-			}
-
-			// validate that memory assigned to containers equals to reserved one under the machine state
-			if err := p.validateResourceReservedMemory(assignmentsMemory[node.Id], nodeState.MemoryMap, resourceName); err != nil {
-				return err
-			}
-		}
+	// State has already been initialized from file (is not empty)
+	// Validate that total size, system reserved and reserved memory not changed, it can happen, when:
+	// - adding or removing physical memory bank from the node
+	// - change of kubelet system-reserved, kube-reserved or pre-reserved-memory-zone parameters
+	if !areMachineStatesEqual(machineState, expectedMachineState) {
+		return fmt.Errorf("[memorymanager] the expected machine state is different from the real one")
 	}
 
 	return nil
+}
+
+func areMachineStatesEqual(ms1, ms2 state.NodeMap) bool {
+	if len(ms1) != len(ms2) {
+		klog.Errorf("[memorymanager] node states are different len(ms1) != len(ms2): %d != %d", len(ms1), len(ms2))
+		return false
+	}
+
+	for nodeId, nodeState1 := range ms1 {
+		nodeState2, ok := ms2[nodeId]
+		if !ok {
+			klog.Errorf("[memorymanager] node state does not have node ID %d", nodeId)
+			return false
+		}
+
+		if nodeState1.NumberOfAssignments != nodeState2.NumberOfAssignments {
+			klog.Errorf("[memorymanager] node states number of assignments are different: %d != %d", nodeState1.NumberOfAssignments, nodeState2.NumberOfAssignments)
+			return false
+		}
+
+		if !areGroupsEqual(nodeState1.Nodes, nodeState2.Nodes) {
+			klog.Errorf("[memorymanager] node states groups are different: %v != %v", nodeState1.Nodes, nodeState2.Nodes)
+			return false
+		}
+
+		if len(nodeState1.MemoryMap) != len(nodeState2.MemoryMap) {
+			klog.Errorf("[memorymanager] node states memory map have different length: %d != %d", len(nodeState1.MemoryMap), len(nodeState2.MemoryMap))
+			return false
+		}
+
+		for resourceName, memoryState1 := range nodeState1.MemoryMap {
+			memoryState2, ok := nodeState2.MemoryMap[resourceName]
+			if !ok {
+				klog.Errorf("[memorymanager] memory state does not have resource %s", resourceName)
+				return false
+			}
+
+			if !reflect.DeepEqual(*memoryState1, *memoryState2) {
+				klog.Errorf("[memorymanager] memory states for the resource %s are different: %+v != %+v", resourceName, *memoryState1, *memoryState1)
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func (p *singleNUMAPolicy) getDefaultMachineState() state.NodeMap {
+	defaultMachineState := state.NodeMap{}
+	for _, node := range p.machineInfo.Topology {
+		// fill memory table with regular memory values
+		systemReserved := p.getResourceSystemReserved(node.Id, v1.ResourceMemory)
+		allocatable := node.Memory - systemReserved
+		defaultMachineState[node.Id] = &state.NodeState{
+			NumberOfAssignments: 0,
+			MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+				v1.ResourceMemory: {
+					Allocatable:    allocatable,
+					Free:           allocatable,
+					Reserved:       0,
+					SystemReserved: systemReserved,
+					TotalMemSize:   node.Memory,
+				},
+			},
+			Nodes: []int{node.Id},
+		}
+
+		// fill memory table with huge pages values
+		for _, hugepage := range node.HugePages {
+			hugepageQuantity := resource.NewQuantity(int64(hugepage.PageSize)*1024, resource.BinarySI)
+			resourceName := corehelper.HugePageResourceName(*hugepageQuantity)
+			systemReserved := p.getResourceSystemReserved(node.Id, resourceName)
+			totalHugepagesSize := hugepage.NumPages * hugepage.PageSize * 1024
+			allocatable := totalHugepagesSize - systemReserved
+			defaultMachineState[node.Id].MemoryMap[resourceName] = &state.MemoryTable{
+				Allocatable:    allocatable,
+				Free:           allocatable,
+				Reserved:       0,
+				SystemReserved: systemReserved,
+				TotalMemSize:   totalHugepagesSize,
+			}
+		}
+	}
+	return defaultMachineState
+}
+
+func (p *singleNUMAPolicy) getResourceSystemReserved(nodeId int, resourceName v1.ResourceName) uint64 {
+	var systemReserved uint64
+	if nodeSystemReserved, ok := p.systemReserved[nodeId]; ok {
+		if nodeMemorySystemReserved, ok := nodeSystemReserved[resourceName]; ok {
+			systemReserved = nodeMemorySystemReserved
+		}
+	}
+	return systemReserved
 }
 
 func (p *singleNUMAPolicy) validateResourceMemory(node *cadvisorapi.Node, expectedTotal uint64, machineMemory map[v1.ResourceName]*state.MemoryTable, resourceName v1.ResourceName) error {
@@ -472,21 +577,92 @@ func (p *singleNUMAPolicy) validateResourceReservedMemory(assignmentsMemory map[
 	return nil
 }
 
-func (p *singleNUMAPolicy) getDefaultNUMAAffinity(s state.State, container *v1.Container, preferred bool) (bitmask.BitMask, error) {
-	requestedResources, err := getRequestedResources(container)
-	if err != nil {
-		return nil, err
+func (p *singleNUMAPolicy) getDefaultHint(s state.State, requestedResources map[v1.ResourceName]uint64) (*topologymanager.TopologyHint, error) {
+	hints := p.calculateHints(s, requestedResources)
+	if len(hints) < 1 {
+		return nil, fmt.Errorf("[memorymanager] failed to get the default NUMA affinity, no NUMA nodes with enough memory is available")
 	}
 
-	hints := p.calculateHints(s, requestedResources)
-
 	// hints for all memory types should be the same, so we will check hints only for regular memory type
-	for _, hint := range hints[string(v1.ResourceMemory)] {
-		// get first hint that fit to the preferred parameter
-		if hint.Preferred || hint.Preferred == preferred {
-			return hint.NUMANodeAffinity, nil
+	return findBestHint(hints[string(v1.ResourceMemory)]), nil
+}
+
+func isAffinitySatisfyRequest(machineState state.NodeMap, mask bitmask.BitMask, requestedResources map[v1.ResourceName]uint64) bool {
+	totalFreeSize := map[v1.ResourceName]uint64{}
+	for _, nodeId := range mask.GetBits() {
+		for resourceName := range requestedResources {
+			if _, ok := totalFreeSize[resourceName]; !ok {
+				totalFreeSize[resourceName] = 0
+			}
+			totalFreeSize[resourceName] += machineState[nodeId].MemoryMap[resourceName].Free
 		}
 	}
 
-	return nil, fmt.Errorf("[memorymanager] failed to get the default NUMA affinity, no NUMA nodes with enough memory is available")
+	// verify that for all memory types the node mask has enough resources
+	for resourceName, requestedSize := range requestedResources {
+		if totalFreeSize[resourceName] < requestedSize {
+			return false
+		}
+	}
+
+	return true
+}
+
+// hints for all memory types should be the same, so we will check hints only for regular memory type
+func (p *singleNUMAPolicy) extendTopologyManagerHint(s state.State, requestedResources map[v1.ResourceName]uint64, mask bitmask.BitMask) (*topologymanager.TopologyHint, error) {
+	hints := p.calculateHints(s, requestedResources)
+
+	var filteredHints []topologymanager.TopologyHint
+	// hints for all memory types should be the same, so we will check hints only for regular memory type
+	for _, hint := range hints[string(v1.ResourceMemory)] {
+		affinityBits := hint.NUMANodeAffinity.GetBits()
+		// filter all hints that does not include currentHint
+		if isHintInGroup(mask.GetBits(), affinityBits) {
+			filteredHints = append(filteredHints, hint)
+		}
+	}
+
+	if len(filteredHints) < 1 {
+		return nil, fmt.Errorf("[memorymanager] failed to find NUMA nodes to extend the current topology hint")
+	}
+
+	// try to find the preferred hint with the minimal number of NUMA nodes, relevant for the restricted policy
+	return findBestHint(filteredHints), nil
+}
+
+func isHintInGroup(hint []int, group []int) bool {
+	sort.Ints(hint)
+	sort.Ints(group)
+
+	hintIndex := 0
+	for i := range group {
+		if group[i] != hint[hintIndex] {
+			continue
+		}
+		hintIndex++
+	}
+	return hintIndex == len(hint)-1
+}
+
+func findBestHint(hints []topologymanager.TopologyHint) *topologymanager.TopologyHint {
+	// try to find the preferred hint with the minimal number of NUMA nodes, relevant for the restricted policy
+	bestHint := topologymanager.TopologyHint{}
+	for _, hint := range hints {
+		if bestHint.NUMANodeAffinity == nil {
+			bestHint = hint
+			continue
+		}
+
+		// preferred of the current hint is true, when the extendedHint preferred is false
+		if hint.Preferred && !bestHint.Preferred {
+			bestHint = hint
+			continue
+		}
+
+		// both hints has the same preferred value, but the current hint has less NUMA nodes than the extended one
+		if hint.Preferred == bestHint.Preferred && hint.NUMANodeAffinity.IsNarrowerThan(bestHint.NUMANodeAffinity) {
+			bestHint = hint
+		}
+	}
+	return &bestHint
 }

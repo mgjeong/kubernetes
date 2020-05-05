@@ -132,7 +132,11 @@ func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAll
 		if err != nil {
 			return nil, err
 		}
-		policy = NewPolicySingleNUMA(machineInfo, systemReserved, affinity)
+
+		policy, err = NewPolicySingleNUMA(machineInfo, systemReserved, affinity)
+		if err != nil {
+			return nil, err
+		}
 
 	default:
 		return nil, fmt.Errorf("unknown policy: \"%s\"", policyName)

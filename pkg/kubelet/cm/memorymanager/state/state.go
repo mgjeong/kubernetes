@@ -31,7 +31,8 @@ type MemoryTable struct {
 
 // NodeState contains NUMA node related information
 type NodeState struct {
-	// NumberOfAssignments contains a number of containers that allocated the memory from this NUMA node
+	// NumberOfAssignments contains a number memory assignments from this node
+	// When the container requires memory and hugepages it will increase number of assignments by two
 	NumberOfAssignments int `json:"numberOfAssignments"`
 	// MemoryTable contains NUMA node memory related information
 	MemoryMap map[v1.ResourceName]*MemoryTable `json:"memoryMap"`

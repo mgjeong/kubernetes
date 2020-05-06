@@ -801,7 +801,7 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 						},
 					},
 					Nodes:               []int{0},
-					NumberOfAssignments: 1,
+					NumberOfAssignments: 2,
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -932,7 +932,8 @@ func TestSingleNUMAPolicyRemoveContainer(t *testing.T) {
 							TotalMemSize:   gb,
 						},
 					},
-					Nodes: []int{},
+					NumberOfAssignments: 2,
+					Nodes:               []int{0},
 				},
 			},
 			expectedMachineState: state.NodeMap{
@@ -953,7 +954,8 @@ func TestSingleNUMAPolicyRemoveContainer(t *testing.T) {
 							TotalMemSize:   gb,
 						},
 					},
-					Nodes: []int{},
+					Nodes:               []int{0},
+					NumberOfAssignments: 0,
 				},
 			},
 			systemReserved: systemReservedMemory{

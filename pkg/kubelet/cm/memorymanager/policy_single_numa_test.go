@@ -109,7 +109,7 @@ func areContainerMemoryAssignmentsEqual(cma1, cma2 state.ContainerMemoryAssignme
 			}
 
 			if !areMemoryBlocksEqual(memoryBlocks, cma2[podUID][containerName]) {
-				klog.Errorf("[memorymanager_tests] memory blocks of assignments are different")
+				klog.Errorf("[memorymanager_tests] assignments memory blocks are different: %v != %v", memoryBlocks, cma2[podUID][containerName])
 				return false
 			}
 		}
@@ -127,11 +127,17 @@ type testSingleNUMAPolicy struct {
 	expectedError         error
 	machineInfo           *cadvisorapi.MachineInfo
 	pod                   *v1.Pod
+	topologyHint          *topologymanager.TopologyHint
 	expectedTopologyHints map[string][]topologymanager.TopologyHint
 }
 
-func initTests(testCase *testSingleNUMAPolicy) (Policy, state.State, error) {
-	p, err := NewPolicySingleNUMA(testCase.machineInfo, testCase.systemReserved, topologymanager.NewFakeManager())
+func initTests(testCase *testSingleNUMAPolicy, hint *topologymanager.TopologyHint) (Policy, state.State, error) {
+	manager := topologymanager.NewFakeManager()
+	if hint != nil {
+		manager = topologymanager.NewFakeMangerWithHint(hint)
+	}
+
+	p, err := NewPolicySingleNUMA(testCase.machineInfo, testCase.systemReserved, manager)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -139,6 +145,65 @@ func initTests(testCase *testSingleNUMAPolicy) (Policy, state.State, error) {
 	s.SetMachineState(testCase.machineState)
 	s.SetMemoryAssignments(testCase.assignments)
 	return p, s, nil
+}
+
+func newNUMAAffinity(bits ...int) bitmask.BitMask {
+	affinity, err := bitmask.NewBitMask(bits...)
+	if err != nil {
+		panic(err)
+	}
+	return affinity
+}
+
+func TestSingleNUMAPolicyNew(t *testing.T) {
+	testCases := []testSingleNUMAPolicy{
+		{
+			description:   "should fail, when machine does not have reserved memory for the system workloads",
+			expectedError: fmt.Errorf("[memorymanager] you should specify the memory reserved for the system"),
+		},
+		{
+			description: "should succeed, when at least one NUMA node has reserved memory",
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.description, func(t *testing.T) {
+			_, _, err := initTests(&testCase, nil)
+			if !reflect.DeepEqual(err, testCase.expectedError) {
+				t.Fatalf("The actual error: %v is different from the expected one: %v", err, testCase.expectedError)
+			}
+		})
+	}
+}
+
+func TestSingleNUMAPolicyName(t *testing.T) {
+	testCases := []testSingleNUMAPolicy{
+		{
+			description: "should return the correct policy name",
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.description, func(t *testing.T) {
+			p, _, err := initTests(&testCase, nil)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+			if p.Name() != string(policyTypeSingleNUMA) {
+				t.Errorf("policy name is different, expected: %q, actual: %q", p.Name(), policyTypeSingleNUMA)
+			}
+		})
+	}
 }
 
 func TestSingleNUMAPolicyStart(t *testing.T) {
@@ -184,7 +249,8 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 							TotalMemSize:   gb,
 						},
 					},
-					Nodes: []int{0},
+					NumberOfAssignments: 0,
+					Nodes:               []int{0},
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -228,7 +294,8 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 							TotalMemSize:   gb,
 						},
 					},
-					Nodes: []int{},
+					Nodes:               []int{0},
+					NumberOfAssignments: 0,
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -277,7 +344,8 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 							TotalMemSize:   gb,
 						},
 					},
-					Nodes: []int{},
+					Nodes:               []int{0},
+					NumberOfAssignments: 0,
 				},
 			},
 			machineInfo: &cadvisorapi.MachineInfo{
@@ -315,7 +383,8 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 							TotalMemSize:   1536 * mb,
 						},
 					},
-					Nodes: []int{},
+					Nodes:               []int{0},
+					NumberOfAssignments: 0,
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -353,7 +422,8 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 							TotalMemSize:   2 * gb,
 						},
 					},
-					Nodes: []int{},
+					Nodes:               []int{0},
+					NumberOfAssignments: 0,
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -402,7 +472,8 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 							TotalMemSize:   2 * gb,
 						},
 					},
-					Nodes: []int{},
+					Nodes:               []int{0},
+					NumberOfAssignments: 1,
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -447,7 +518,8 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 							TotalMemSize:   gb,
 						},
 					},
-					Nodes: []int{},
+					Nodes:               []int{0},
+					NumberOfAssignments: 0,
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -492,7 +564,8 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 							TotalMemSize:   2 * gb,
 						},
 					},
-					Nodes: []int{},
+					Nodes:               []int{0},
+					NumberOfAssignments: 0,
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -557,7 +630,8 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 							TotalMemSize:   4 * gb,
 						},
 					},
-					Nodes: []int{},
+					Nodes:               []int{0},
+					NumberOfAssignments: 2,
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -582,11 +656,373 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 			},
 			expectedError: fmt.Errorf("[memorymanager] the expected machine state is different from the real one"),
 		},
+		{
+			description: "should fail when machine state does not have NUMA node that used under the memory assignment",
+			assignments: state.ContainerMemoryAssignments{
+				"pod1": map[string][]state.Block{
+					"container1": {
+						{
+							NUMAAffinity: []int{1},
+							Type:         v1.ResourceMemory,
+							Size:         gb,
+						},
+					},
+				},
+			},
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 0,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			machineInfo: &cadvisorapi.MachineInfo{
+				Topology: []cadvisorapi.Node{
+					{
+						Id:     0,
+						Memory: 2 * gb,
+						HugePages: []cadvisorapi.HugePagesInfo{
+							{
+								// size in KB
+								PageSize: pageSize1Gb,
+								NumPages: 1,
+							},
+						},
+					},
+				},
+			},
+			expectedError: fmt.Errorf("[memorymanager] (pod: pod1, container: container1) the memory assignment uses the NUMA that does not exist"),
+		},
+		{
+			description: "should fail when machine state does not have resource that used under the memory assignment",
+			assignments: state.ContainerMemoryAssignments{
+				"pod1": map[string][]state.Block{
+					"container1": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         gb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages2M,
+							Size:         gb,
+						},
+					},
+				},
+			},
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 2,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			machineInfo: &cadvisorapi.MachineInfo{
+				Topology: []cadvisorapi.Node{
+					{
+						Id:     0,
+						Memory: 2 * gb,
+						HugePages: []cadvisorapi.HugePagesInfo{
+							{
+								// size in KB
+								PageSize: pageSize1Gb,
+								NumPages: 1,
+							},
+						},
+					},
+				},
+			},
+			expectedError: fmt.Errorf("[memorymanager] (pod: pod1, container: container1) the memory assignment uses memory resource that does not exist"),
+		},
+		{
+			description: "should fail when machine state number of assignments is different from the expected one",
+			assignments: state.ContainerMemoryAssignments{
+				"pod1": map[string][]state.Block{
+					"container1": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         gb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         gb,
+						},
+					},
+				},
+			},
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 1,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			machineInfo: &cadvisorapi.MachineInfo{
+				Topology: []cadvisorapi.Node{
+					{
+						Id:     0,
+						Memory: 2 * gb,
+						HugePages: []cadvisorapi.HugePagesInfo{
+							{
+								// size in KB
+								PageSize: pageSize1Gb,
+								NumPages: 1,
+							},
+						},
+					},
+				},
+			},
+			expectedError: fmt.Errorf("[memorymanager] the expected machine state is different from the real one"),
+		},
+		{
+			description: "should validate cross NUMA reserved memory vs container assignments",
+			assignments: state.ContainerMemoryAssignments{
+				"pod1": map[string][]state.Block{
+					"container1": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         768 * mb,
+						},
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         hugepages1Gi,
+							Size:         gb,
+						},
+					},
+				},
+				"pod2": map[string][]state.Block{
+					"container2": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         256 * mb,
+						},
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         hugepages1Gi,
+							Size:         gb,
+						},
+					},
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod1": map[string][]state.Block{
+					"container1": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         768 * mb,
+						},
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         hugepages1Gi,
+							Size:         gb,
+						},
+					},
+				},
+				"pod2": map[string][]state.Block{
+					"container2": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         256 * mb,
+						},
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         hugepages1Gi,
+							Size:         gb,
+						},
+					},
+				},
+			},
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    640 * mb,
+							Free:           0,
+							Reserved:       640 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   1152 * mb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           0,
+							Reserved:       gb,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0, 1},
+					NumberOfAssignments: 4,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    640 * mb,
+							Free:           256 * mb,
+							Reserved:       384 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   1152 * mb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           0,
+							Reserved:       gb,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0, 1},
+					NumberOfAssignments: 4,
+				},
+			},
+			expectedMachineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    640 * mb,
+							Free:           0,
+							Reserved:       640 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   1152 * mb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           0,
+							Reserved:       gb,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0, 1},
+					NumberOfAssignments: 4,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    640 * mb,
+							Free:           256 * mb,
+							Reserved:       384 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   1152 * mb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           0,
+							Reserved:       gb,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0, 1},
+					NumberOfAssignments: 4,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			machineInfo: &cadvisorapi.MachineInfo{
+				Topology: []cadvisorapi.Node{
+					{
+						Id:     0,
+						Memory: 1152 * mb,
+						HugePages: []cadvisorapi.HugePagesInfo{
+							{
+								// size in KB
+								PageSize: pageSize1Gb,
+								NumPages: 1,
+							},
+						},
+					},
+					{
+						Id:     1,
+						Memory: 1152 * mb,
+						HugePages: []cadvisorapi.HugePagesInfo{
+							{
+								// size in KB
+								PageSize: pageSize1Gb,
+								NumPages: 1,
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.description, func(t *testing.T) {
-			p, s, err := initTests(&testCase)
+			p, s, err := initTests(&testCase, nil)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -667,6 +1103,7 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 			},
 			pod:                   getPod("pod1", "container1", requirementsBurstable),
 			expectedTopologyHints: nil,
+			topologyHint:          &topologymanager.TopologyHint{},
 		},
 		{
 			description: "should do nothing once container already exists under the state file",
@@ -741,9 +1178,10 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 			},
 			pod:                   getPod("pod1", "container1", requirementsGuaranteed),
 			expectedTopologyHints: nil,
+			topologyHint:          &topologymanager.TopologyHint{},
 		},
 		{
-			description: "should calculate a default topology hint when no hint is provided by topology manager",
+			description: "should calculate a default topology hint when no NUMA affinity was provided by the topology manager hint",
 			assignments: state.ContainerMemoryAssignments{},
 			expectedAssignments: state.ContainerMemoryAssignments{
 				"pod1": map[string][]state.Block{
@@ -809,13 +1247,523 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 					v1.ResourceMemory: 512 * mb,
 				},
 			},
-			pod: getPod("pod1", "container1", requirementsGuaranteed),
+			pod:          getPod("pod1", "container1", requirementsGuaranteed),
+			topologyHint: &topologymanager.TopologyHint{},
+		},
+		{
+			description: "should fail when no NUMA affinity was provided under the topology manager hint and calculation of the default hint failed",
+			assignments: state.ContainerMemoryAssignments{
+				"pod1": map[string][]state.Block{
+					"container1": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         gb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         gb,
+						},
+					},
+				},
+			},
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1024 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           0,
+							Reserved:       gb,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 2,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			pod:           getPod("pod2", "container2", requirementsGuaranteed),
+			expectedError: fmt.Errorf("[memorymanager] failed to get the default NUMA affinity, no NUMA nodes with enough memory is available"),
+			topologyHint:  &topologymanager.TopologyHint{},
+		},
+		{
+			description: "should fail when no NUMA affinity was provided under the topology manager preferred hint and default hint has preferred false",
+			assignments: state.ContainerMemoryAssignments{
+				"pod1": map[string][]state.Block{
+					"container1": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         512 * mb,
+						},
+					},
+				},
+			},
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    gb,
+							Free:           512 * mb,
+							Reserved:       512 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   1536 * mb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 1,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   1536 * mb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+				2: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   1536 * mb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{2},
+					NumberOfAssignments: 0,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				2: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			pod:           getPod("pod2", "container2", requirementsGuaranteed),
+			expectedError: fmt.Errorf("[memorymanager] failed to find the default preferred hint"),
+			topologyHint:  &topologymanager.TopologyHint{Preferred: true},
+		},
+		{
+			description: "should fail when NUMA affinity provided under the topology manager hint did not satisfy container requirements and extended hint generation failed",
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 0,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{1, 2},
+					NumberOfAssignments: 1,
+				},
+				2: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{1, 2},
+					NumberOfAssignments: 1,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				2: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			pod:           getPod("pod1", "container1", requirementsGuaranteed),
+			expectedError: fmt.Errorf("[memorymanager] failed to find NUMA nodes to extend the current topology hint"),
+			topologyHint:  &topologymanager.TopologyHint{NUMANodeAffinity: newNUMAAffinity(0), Preferred: false},
+		},
+		{
+			description: "should fail when the topology manager provided the preferred hint and extended hint has preferred false",
+			assignments: state.ContainerMemoryAssignments{
+				"pod1": map[string][]state.Block{
+					"container1": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         512 * mb,
+						},
+					},
+				},
+			},
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    gb,
+							Free:           512 * mb,
+							Reserved:       512 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   1536 * mb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 1,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   1536 * mb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+				2: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   1536 * mb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{2},
+					NumberOfAssignments: 0,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				2: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			pod:           getPod("pod2", "container2", requirementsGuaranteed),
+			expectedError: fmt.Errorf("[memorymanager] failed to find the extended preferred hint"),
+			topologyHint:  &topologymanager.TopologyHint{NUMANodeAffinity: newNUMAAffinity(1), Preferred: true},
+		},
+		{
+			description: "should succeed to allocate memory from multiple NUMA nodes",
+			assignments: state.ContainerMemoryAssignments{},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod1": map[string][]state.Block{
+					"container1": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         gb,
+						},
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         hugepages1Gi,
+							Size:         gb,
+						},
+					},
+				},
+			},
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 0,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+				2: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{2},
+					NumberOfAssignments: 0,
+				},
+				3: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{3},
+					NumberOfAssignments: 0,
+				},
+			},
+			expectedMachineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           0,
+							Reserved:       512 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           0,
+							Reserved:       gb,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0, 1},
+					NumberOfAssignments: 2,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           0,
+							Reserved:       512 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0, 1},
+					NumberOfAssignments: 2,
+				},
+				2: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{2},
+					NumberOfAssignments: 0,
+				},
+				3: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{3},
+					NumberOfAssignments: 0,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				2: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				3: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			pod:          getPod("pod1", "container1", requirementsGuaranteed),
+			topologyHint: &topologymanager.TopologyHint{Preferred: true},
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.description, func(t *testing.T) {
-			p, s, err := initTests(&testCase)
+			klog.Infof("TestSingleNUMAPolicyAllocate %s", testCase.description)
+			p, s, err := initTests(&testCase, testCase.topologyHint)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -964,11 +1912,123 @@ func TestSingleNUMAPolicyRemoveContainer(t *testing.T) {
 				},
 			},
 		},
+		{
+			description: "should delete the cross NUMA container assignment and update the machine state",
+			assignments: state.ContainerMemoryAssignments{
+				"pod1": map[string][]state.Block{
+					"container1": {
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         v1.ResourceMemory,
+							Size:         gb,
+						},
+						{
+							NUMAAffinity: []int{0, 1},
+							Type:         hugepages1Gi,
+							Size:         gb,
+						},
+					},
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{},
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           0,
+							Reserved:       512 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           0,
+							Reserved:       gb,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					NumberOfAssignments: 2,
+					Nodes:               []int{0, 1},
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           0,
+							Reserved:       512 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					NumberOfAssignments: 2,
+					Nodes:               []int{0, 1},
+				},
+			},
+			expectedMachineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					NumberOfAssignments: 0,
+					Nodes:               []int{0},
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					NumberOfAssignments: 0,
+					Nodes:               []int{1},
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.description, func(t *testing.T) {
-			p, s, err := initTests(&testCase)
+			p, s, err := initTests(&testCase, nil)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -996,21 +2056,6 @@ func TestSingleNUMAPolicyRemoveContainer(t *testing.T) {
 }
 
 func TestSingleNUMAPolicyGetTopologyHints(t *testing.T) {
-	affinity0, err := bitmask.NewBitMask(0)
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-
-	affinity1, err := bitmask.NewBitMask(1)
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-
-	affinity2, err := bitmask.NewBitMask(0, 1)
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-
 	testCases := []testSingleNUMAPolicy{
 		{
 			description: "should not provide topology hints for non-guaranteed pods",
@@ -1049,13 +2094,13 @@ func TestSingleNUMAPolicyGetTopologyHints(t *testing.T) {
 			expectedTopologyHints: map[string][]topologymanager.TopologyHint{
 				string(v1.ResourceMemory): {
 					{
-						NUMANodeAffinity: affinity0,
+						NUMANodeAffinity: newNUMAAffinity(0),
 						Preferred:        true,
 					},
 				},
 				string(hugepages1Gi): {
 					{
-						NUMANodeAffinity: affinity0,
+						NUMANodeAffinity: newNUMAAffinity(0),
 						Preferred:        true,
 					},
 				},
@@ -1067,14 +2112,14 @@ func TestSingleNUMAPolicyGetTopologyHints(t *testing.T) {
 				"pod1": map[string][]state.Block{
 					"container1": {
 						{
-							NUMAAffinity: []int{0},
+							NUMAAffinity: []int{0, 1},
 							Type:         v1.ResourceMemory,
-							Size:         gb,
+							Size:         2 * gb,
 						},
 						{
-							NUMAAffinity: []int{0},
+							NUMAAffinity: []int{0, 1},
 							Type:         hugepages1Gi,
-							Size:         gb,
+							Size:         2 * gb,
 						},
 					},
 				},
@@ -1084,8 +2129,8 @@ func TestSingleNUMAPolicyGetTopologyHints(t *testing.T) {
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
 							Allocatable:    1536 * mb,
-							Free:           512 * mb,
-							Reserved:       1024 * mb,
+							Free:           0,
+							Reserved:       1536 * mb,
 							SystemReserved: 512 * mb,
 							TotalMemSize:   2 * gb,
 						},
@@ -1097,9 +2142,30 @@ func TestSingleNUMAPolicyGetTopologyHints(t *testing.T) {
 							TotalMemSize:   gb,
 						},
 					},
-					Nodes: []int{},
+					Nodes:               []int{0, 1},
+					NumberOfAssignments: 2,
 				},
 				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           gb,
+							Reserved:       512 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           0,
+							Reserved:       gb,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0, 1},
+					NumberOfAssignments: 2,
+				},
+				2: &state.NodeState{
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
 							Allocatable:    1536 * mb,
@@ -1116,7 +2182,28 @@ func TestSingleNUMAPolicyGetTopologyHints(t *testing.T) {
 							TotalMemSize:   gb,
 						},
 					},
-					Nodes: []int{},
+					Nodes:               []int{2},
+					NumberOfAssignments: 0,
+				},
+				3: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           1536 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{3},
+					NumberOfAssignments: 0,
 				},
 			},
 			pod: getPod("pod2", "container2", requirementsGuaranteed),
@@ -1124,35 +2211,125 @@ func TestSingleNUMAPolicyGetTopologyHints(t *testing.T) {
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 512 * mb,
 				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				2: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				3: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
 			},
 			expectedTopologyHints: map[string][]topologymanager.TopologyHint{
 				string(v1.ResourceMemory): {
 					{
-						NUMANodeAffinity: affinity1,
+						NUMANodeAffinity: newNUMAAffinity(2),
 						Preferred:        true,
 					},
 					{
-						NUMANodeAffinity: affinity2,
+						NUMANodeAffinity: newNUMAAffinity(3),
+						Preferred:        true,
+					},
+					{
+						NUMANodeAffinity: newNUMAAffinity(2, 3),
 						Preferred:        false,
 					},
 				},
 				string(hugepages1Gi): {
 					{
-						NUMANodeAffinity: affinity1,
+						NUMANodeAffinity: newNUMAAffinity(2),
 						Preferred:        true,
 					},
 					{
-						NUMANodeAffinity: affinity2,
+						NUMANodeAffinity: newNUMAAffinity(3),
+						Preferred:        true,
+					},
+					{
+						NUMANodeAffinity: newNUMAAffinity(2, 3),
 						Preferred:        false,
 					},
 				},
 			},
 		},
+		{
+			description: "should fail when number of existing memory assignment resources are different from resources requested by container",
+			assignments: state.ContainerMemoryAssignments{
+				"pod1": map[string][]state.Block{
+					"container1": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         gb,
+						},
+					},
+				},
+			},
+			pod: getPod("pod1", "container1", requirementsGuaranteed),
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			expectedTopologyHints: nil,
+		},
+		{
+			description: "should fail when existing memory assignment resources are different from resources requested by container",
+			assignments: state.ContainerMemoryAssignments{
+				"pod1": map[string][]state.Block{
+					"container1": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         gb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages2M,
+							Size:         gb,
+						},
+					},
+				},
+			},
+			pod: getPod("pod1", "container1", requirementsGuaranteed),
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			expectedTopologyHints: nil,
+		},
+		{
+			description: "should fail when existing memory assignment size is different from one requested by the container",
+			assignments: state.ContainerMemoryAssignments{
+				"pod1": map[string][]state.Block{
+					"container1": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         512 * mb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         gb,
+						},
+					},
+				},
+			},
+			pod: getPod("pod1", "container1", requirementsGuaranteed),
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			expectedTopologyHints: nil,
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.description, func(t *testing.T) {
-			p, s, err := initTests(&testCase)
+			p, s, err := initTests(&testCase, nil)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}

@@ -127,11 +127,17 @@ type testSingleNUMAPolicy struct {
 	expectedError         error
 	machineInfo           *cadvisorapi.MachineInfo
 	pod                   *v1.Pod
+	topologyHint          *topologymanager.TopologyHint
 	expectedTopologyHints map[string][]topologymanager.TopologyHint
 }
 
-func initTests(testCase *testSingleNUMAPolicy) (Policy, state.State, error) {
-	p, err := NewPolicySingleNUMA(testCase.machineInfo, testCase.systemReserved, topologymanager.NewFakeManager())
+func initTests(testCase *testSingleNUMAPolicy, hint *topologymanager.TopologyHint) (Policy, state.State, error) {
+	manager := topologymanager.NewFakeManager()
+	if hint != nil {
+		manager = topologymanager.NewFakeMangerWithHint(hint)
+	}
+
+	p, err := NewPolicySingleNUMA(testCase.machineInfo, testCase.systemReserved, manager)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -139,6 +145,65 @@ func initTests(testCase *testSingleNUMAPolicy) (Policy, state.State, error) {
 	s.SetMachineState(testCase.machineState)
 	s.SetMemoryAssignments(testCase.assignments)
 	return p, s, nil
+}
+
+func newNUMAAffinity(bits ...int) bitmask.BitMask {
+	affinity, err := bitmask.NewBitMask(bits...)
+	if err != nil {
+		panic(err)
+	}
+	return affinity
+}
+
+func TestSingleNUMAPolicyNew(t *testing.T) {
+	testCases := []testSingleNUMAPolicy{
+		{
+			description:   "should fail, when machine does not have reserved memory for the system workloads",
+			expectedError: fmt.Errorf("[memorymanager] you should specify the memory reserved for the system"),
+		},
+		{
+			description: "should succeed, when at least one NUMA node has reserved memory",
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.description, func(t *testing.T) {
+			_, _, err := initTests(&testCase, nil)
+			if !reflect.DeepEqual(err, testCase.expectedError) {
+				t.Fatalf("The actual error: %v is different from the expected one: %v", err, testCase.expectedError)
+			}
+		})
+	}
+}
+
+func TestSingleNUMAPolicyName(t *testing.T) {
+	testCases := []testSingleNUMAPolicy{
+		{
+			description: "should return the correct policy name",
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.description, func(t *testing.T) {
+			p, _, err := initTests(&testCase, nil)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+			if p.Name() != string(policyTypeSingleNUMA) {
+				t.Errorf("policy name is different, expected: %q, actual: %q", p.Name(), policyTypeSingleNUMA)
+			}
+		})
+	}
 }
 
 func TestSingleNUMAPolicyStart(t *testing.T) {
@@ -184,7 +249,8 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 							TotalMemSize:   gb,
 						},
 					},
-					Nodes: []int{0},
+					NumberOfAssignments: 0,
+					Nodes:               []int{0},
 				},
 			},
 			systemReserved: systemReservedMemory{
@@ -586,7 +652,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.description, func(t *testing.T) {
-			p, s, err := initTests(&testCase)
+			p, s, err := initTests(&testCase, nil)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -667,6 +733,7 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 			},
 			pod:                   getPod("pod1", "container1", requirementsBurstable),
 			expectedTopologyHints: nil,
+			topologyHint:          &topologymanager.TopologyHint{},
 		},
 		{
 			description: "should do nothing once container already exists under the state file",
@@ -741,9 +808,10 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 			},
 			pod:                   getPod("pod1", "container1", requirementsGuaranteed),
 			expectedTopologyHints: nil,
+			topologyHint:          &topologymanager.TopologyHint{},
 		},
 		{
-			description: "should calculate a default topology hint when no hint is provided by topology manager",
+			description: "should calculate a default topology hint when no NUMA affinity was provided by the topology manager hint",
 			assignments: state.ContainerMemoryAssignments{},
 			expectedAssignments: state.ContainerMemoryAssignments{
 				"pod1": map[string][]state.Block{
@@ -809,13 +877,311 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 					v1.ResourceMemory: 512 * mb,
 				},
 			},
-			pod: getPod("pod1", "container1", requirementsGuaranteed),
+			pod:          getPod("pod1", "container1", requirementsGuaranteed),
+			topologyHint: &topologymanager.TopologyHint{},
+		},
+		{
+			description: "should fail when no NUMA affinity was provided under the topology manager hint and calculation of the default hint failed",
+			assignments: state.ContainerMemoryAssignments{
+				"pod1": map[string][]state.Block{
+					"container1": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         gb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         gb,
+						},
+					},
+				},
+			},
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       1024 * mb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           0,
+							Reserved:       gb,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 2,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			pod:           getPod("pod2", "container2", requirementsGuaranteed),
+			expectedError: fmt.Errorf("[memorymanager] failed to get the default NUMA affinity, no NUMA nodes with enough memory is available"),
+			topologyHint:  &topologymanager.TopologyHint{},
+		},
+		{
+			description: "should fail when no NUMA affinity was provided under the topology manager preferred hint and default hint has preferred false",
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 0,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			pod:           getPod("pod1", "container1", requirementsGuaranteed),
+			expectedError: fmt.Errorf("[memorymanager] failed to find the default preferred hint"),
+			topologyHint:  &topologymanager.TopologyHint{Preferred: true},
+		},
+		{
+			description: "should fail when NUMA affinity provided under the topology manager hint did not satisfy container requirements and extended hint generation failed",
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 0,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{1, 2},
+					NumberOfAssignments: 1,
+				},
+				2: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    1536 * mb,
+							Free:           512 * mb,
+							Reserved:       gb,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   2 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{1, 2},
+					NumberOfAssignments: 1,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				2: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			pod:           getPod("pod1", "container1", requirementsGuaranteed),
+			expectedError: fmt.Errorf("[memorymanager] failed to find NUMA nodes to extend the current topology hint"),
+			topologyHint:  &topologymanager.TopologyHint{NUMANodeAffinity: newNUMAAffinity(0), Preferred: false},
+		},
+		{
+			description: "should fail when the topology manager provided the preferred hint and extended hint has preferred false",
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 0,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			pod:           getPod("pod1", "container1", requirementsGuaranteed),
+			expectedError: fmt.Errorf("[memorymanager] failed to find the extended preferred hint"),
+			topologyHint:  &topologymanager.TopologyHint{NUMANodeAffinity: newNUMAAffinity(0), Preferred: true},
+		},
+		{
+			description: "should fail when the topology manager provided the preferred hint and extended hint has preferred false",
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 0,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    512 * mb,
+							Free:           512 * mb,
+							Reserved:       0,
+							SystemReserved: 512 * mb,
+							TotalMemSize:   gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    gb,
+							Free:           gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 512 * mb,
+				},
+			},
+			pod:           getPod("pod1", "container1", requirementsGuaranteed),
+			expectedError: fmt.Errorf("[memorymanager] failed to find the extended preferred hint"),
+			topologyHint:  &topologymanager.TopologyHint{NUMANodeAffinity: newNUMAAffinity(0), Preferred: true},
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.description, func(t *testing.T) {
-			p, s, err := initTests(&testCase)
+			klog.Infof("TestSingleNUMAPolicyAllocate %s", testCase.description)
+			p, s, err := initTests(&testCase, testCase.topologyHint)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -968,7 +1334,7 @@ func TestSingleNUMAPolicyRemoveContainer(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.description, func(t *testing.T) {
-			p, s, err := initTests(&testCase)
+			p, s, err := initTests(&testCase, nil)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -1152,7 +1518,7 @@ func TestSingleNUMAPolicyGetTopologyHints(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.description, func(t *testing.T) {
-			p, s, err := initTests(&testCase)
+			p, s, err := initTests(&testCase, nil)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}

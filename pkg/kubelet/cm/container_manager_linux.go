@@ -344,6 +344,7 @@ func NewContainerManager(mountUtil mount.Interface, cadvisorInterface cadvisor.I
 			nodeConfig.ExperimentalMemoryManagerPreReservedMemory,
 			nodeConfig.KubeletRootDir,
 			cm.topologyManager,
+			nodeConfig.ExperimentalMultiNUMAGroups,
 		)
 		if err != nil {
 			klog.Errorf("failed to initialize memory manager: %v", err)

@@ -298,6 +298,17 @@ func (in *KubeletConfiguration) DeepCopyInto(out *KubeletConfiguration) {
 			}
 		}
 	}
+	if in.MultiNUMAGroups != nil {
+		in, out := &in.MultiNUMAGroups, &out.MultiNUMAGroups
+		*out = make([][]string, len(*in))
+		for i := range *in {
+			if (*in)[i] != nil {
+				in, out := &(*in)[i], &(*out)[i]
+				*out = make([]string, len(*in))
+				copy(*out, *in)
+			}
+		}
+	}
 	return
 }
 

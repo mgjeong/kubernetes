@@ -350,6 +350,11 @@ type KubeletConfiguration struct {
 	// The format is {numa-node=integer, memory-type=string, limit=string}
 	// (e.g. {numa-node=0, memory-type=memory, limit=1Gi}, {numa-node=1, memory-type=memory, limit=1Gi})
 	PreReservedMemoryZone []map[string]string
+	// A comma separated list of NUMA nodes ID's that should be used for the cross NUMA node memory allocation.
+	// Each slice will create a disjoint preferred groups of nodes for the memory allocation.
+	// For example on the machine with four NUMA nodes and with the group [0,1], you will have three preferred disjoint
+	// groups: [0,1], [2], [3].
+	MultiNUMAGroups [][]string
 }
 
 // KubeletAuthorizationMode denotes the authorization mode for the kubelet

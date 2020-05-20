@@ -40,8 +40,12 @@ type systemReservedMemory map[int]map[v1.ResourceName]uint64
 // SingleNUMAPolicy is implementation of the policy interface for the single NUMA policy
 type singleNUMAPolicy struct {
 	// TODO: define new kubelet flag and pass it to the ContainerManager -> MemoryManager -> singleNUMAPolicy
-	// crossNUMAGroups contains groups of NUMA node that can be used for cross NUMA memory allocations
-	crossNUMAGroups [][]int
+	// multipleNUMAGroups defines groups of NUMA nodes that will be set to preferred under the topology hint generation
+	// for example on the machine with four NUMA nodes and with this parameter equals to [[0,2]], only hints
+	// [0010, 1000, 0101] will be preferred
+	// if this parameter is empty, the default behavior will be used to set preferred hints, it means that only hint
+	// with a minimal amount of nodes that should satisfy the request will be set to preferred
+	multipleNUMAGroups [][]int
 	// machineInfo contains machine memory related information
 	machineInfo *cadvisorapi.MachineInfo
 	// reserved contains memory that reserved for kube
@@ -337,7 +341,7 @@ func (p *singleNUMAPolicy) calculateHints(s state.State, requestedResources map[
 		for _, nodeId := range maskBits {
 			// the node already used for the memory allocation
 			if !singleNUMAHint && machineState[nodeId].NumberOfAssignments > 0 {
-				// the node used for the single NUMA memory allocation, it can be used for the cross NUMA node allocation
+				// the node used for the single NUMA memory allocation, it can be used for the multiple NUMA node allocation
 				if len(machineState[nodeId].Nodes) == 1 {
 					return
 				}
@@ -382,15 +386,15 @@ func (p *singleNUMAPolicy) calculateHints(s state.State, requestedResources map[
 func (p *singleNUMAPolicy) isHintPreferred(maskBits []int) bool {
 	// check if the mask is for the single NUMA node hint
 	if len(maskBits) == 1 {
-		// the node should be used only for cross NUMA memory allocation
-		return !p.isCrossNUMANode(maskBits[0])
+		// the node should be used only for multiple NUMA memory allocation
+		return !p.isMultipleNUMANode(maskBits[0])
 	}
 
-	return p.isCrossNUMAGroup(maskBits)
+	return p.isMultipleNUMAGroup(maskBits)
 }
 
-func (p *singleNUMAPolicy) isCrossNUMAGroup(maskBits []int) bool {
-	for _, group := range p.crossNUMAGroups {
+func (p *singleNUMAPolicy) isMultipleNUMAGroup(maskBits []int) bool {
+	for _, group := range p.multipleNUMAGroups {
 		if areGroupsEqual(group, maskBits) {
 			return true
 		}
@@ -414,8 +418,8 @@ func areGroupsEqual(group1, group2 []int) bool {
 	return true
 }
 
-func (p *singleNUMAPolicy) isCrossNUMANode(nodeId int) bool {
-	for _, group := range p.crossNUMAGroups {
+func (p *singleNUMAPolicy) isMultipleNUMANode(nodeId int) bool {
+	for _, group := range p.multipleNUMAGroups {
 		for _, groupNode := range group {
 			if nodeId == groupNode {
 				return true
@@ -622,7 +626,10 @@ func isAffinitySatisfyRequest(machineState state.NodeMap, mask bitmask.BitMask, 
 	return true
 }
 
-// hints for all memory types should be the same, so we will check hints only for regular memory type
+// extendTopologyManagerHint extends the topology manager hint, in case when it does not satisfy to the container request
+// the topology manager uses bitwise AND to merge all topology hints into the best one, so in case of the restricted policy,
+// it possible that we will get the subset of hint that we provided to the topology manager, in this case we want to extend
+// it to the original one
 func (p *singleNUMAPolicy) extendTopologyManagerHint(s state.State, requestedResources map[v1.ResourceName]uint64, mask bitmask.BitMask) (*topologymanager.TopologyHint, error) {
 	hints := p.calculateHints(s, requestedResources)
 

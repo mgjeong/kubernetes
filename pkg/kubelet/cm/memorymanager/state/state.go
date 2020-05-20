@@ -36,8 +36,8 @@ type NodeState struct {
 	NumberOfAssignments int `json:"numberOfAssignments"`
 	// MemoryTable contains NUMA node memory related information
 	MemoryMap map[v1.ResourceName]*MemoryTable `json:"memoryMap"`
-	// Nodes contains the current NUMA node and all other nodes that current NUMA node in group with them
-	// This parameter used to indicate if the current node used for the multiple NUMA node memory allocation
+	// Nodes contains the current NUMA node and all other nodes that are in a group with current NUMA node
+	// This parameter indicates if the current node is used for the multiple NUMA node memory allocation
 	// For example if some container has pinning 0,1,2, NUMA nodes 0,1,2 under the state will have
 	// this parameter equals to [0, 1, 2]
 	Nodes []int `json:"nodes"`

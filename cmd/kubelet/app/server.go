@@ -734,6 +734,7 @@ func run(ctx context.Context, s *options.KubeletServer, kubeDeps *kubelet.Depend
 				EnforceCPULimits:                      s.CPUCFSQuota,
 				CPUCFSQuotaPeriod:                     s.CPUCFSQuotaPeriod.Duration,
 				ExperimentalTopologyManagerPolicy:     s.TopologyManagerPolicy,
+				ExperimentalTopologyManagerScope:      s.TopologyManagerScope,
 			},
 			s.FailSwapOn,
 			devicePluginEnabled,

@@ -60,6 +60,11 @@ func (m *fakeManager) GetTopologyHints(pod *v1.Pod, container *v1.Container) map
 	return map[string][]topologymanager.TopologyHint{}
 }
 
+func (m *fakeManager) GetPodLevelTopologyHints(pod *v1.Pod) map[string][]topologymanager.TopologyHint {
+	klog.Infof("[fake cpumanager] Get Pod Level Topology Hints")
+	return map[string][]topologymanager.TopologyHint{}
+}
+
 func (m *fakeManager) State() state.Reader {
 	return m.state
 }

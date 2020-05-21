@@ -77,6 +77,11 @@ type Manager interface {
 	// and is consulted to achieve NUMA aware resource alignment among this
 	// and other resource controllers.
 	GetTopologyHints(*v1.Pod, *v1.Container) map[string][]topologymanager.TopologyHint
+
+	// GetTopologyHints implements the topologymanager. HintProvider Interface
+	// and is consulted to achieve NUMA aware resource alignment per Pod
+	// among this and other resource controllers.
+	GetPodLevelTopologyHints(pod *v1.Pod) map[string][]topologymanager.TopologyHint
 }
 
 type manager struct {
@@ -298,6 +303,13 @@ func (m *manager) GetTopologyHints(pod *v1.Pod, container *v1.Container) map[str
 	m.removeStaleState()
 	// Delegate to active policy
 	return m.policy.GetTopologyHints(m.state, pod, container)
+}
+
+func (m *manager) GetPodLevelTopologyHints(pod *v1.Pod) map[string][]topologymanager.TopologyHint {
+	// Garbage collect any stranded resources before providing TopologyHints
+	m.removeStaleState()
+	// Delegate to active policy
+	return m.policy.GetPodLevelTopologyHints(m.state, pod)
 }
 
 type reconciledContainer struct {

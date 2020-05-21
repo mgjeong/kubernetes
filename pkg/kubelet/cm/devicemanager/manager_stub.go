@@ -74,6 +74,11 @@ func (h *ManagerStub) GetTopologyHints(pod *v1.Pod, container *v1.Container) map
 	return map[string][]topologymanager.TopologyHint{}
 }
 
+// GetPodLevelTopologyHints returns an empty TopologyHint map
+func (h *ManagerStub) GetPodLevelTopologyHints(pod *v1.Pod) map[string][]topologymanager.TopologyHint {
+	return map[string][]topologymanager.TopologyHint{}
+}
+
 // GetDevices returns nil
 func (h *ManagerStub) GetDevices(_, _ string) []*podresourcesapi.ContainerDevices {
 	return nil

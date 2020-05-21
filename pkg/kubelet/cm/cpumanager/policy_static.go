@@ -354,6 +354,10 @@ func (p *staticPolicy) GetTopologyHints(s state.State, pod *v1.Pod, container *v
 	}
 }
 
+func (p *staticPolicy) GetPodLevelTopologyHints(s state.State, pod *v1.Pod) map[string][]topologymanager.TopologyHint {
+	return nil
+}
+
 // generateCPUtopologyHints generates a set of TopologyHints given the set of
 // available CPUs and the number of CPUs being requested.
 //

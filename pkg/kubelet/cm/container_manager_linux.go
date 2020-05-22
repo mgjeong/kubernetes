@@ -302,6 +302,7 @@ func NewContainerManager(mountUtil mount.Interface, cadvisorInterface cadvisor.I
 		cm.topologyManager, err = topologymanager.NewManager(
 			numaNodeInfo,
 			nodeConfig.ExperimentalTopologyManagerPolicy,
+			nodeConfig.ExperimentalTopologyManagerScope,
 		)
 
 		if err != nil {
@@ -309,6 +310,7 @@ func NewContainerManager(mountUtil mount.Interface, cadvisorInterface cadvisor.I
 		}
 
 		klog.Infof("[topologymanager] Initializing Topology Manager with %s policy", nodeConfig.ExperimentalTopologyManagerPolicy)
+		klog.Infof("[topologymanager] Initializing Topology Manager with %s policy", nodeConfig.ExperimentalTopologyManagerScope)
 	} else {
 		cm.topologyManager = topologymanager.NewFakeManager()
 	}

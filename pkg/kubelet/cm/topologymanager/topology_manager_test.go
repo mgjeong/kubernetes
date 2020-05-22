@@ -38,27 +38,42 @@ func TestNewManager(t *testing.T) {
 		description    string
 		policyName     string
 		expectedPolicy string
+		scopeName      string
+		expectedScope  string
 		expectedError  error
 	}{
 		{
 			description:    "Policy is set to best-effort",
 			policyName:     "best-effort",
 			expectedPolicy: "best-effort",
+			scopeName:      "container",
+			expectedScope:  "container",
 		},
 		{
 			description:    "Policy is set to restricted",
 			policyName:     "restricted",
 			expectedPolicy: "restricted",
+			scopeName:      "container",
+			expectedScope:  "container",
+		},
+		{
+			description:    "Policy is set to single-numa-node",
+			policyName:     "single-numa-node",
+			expectedPolicy: "single-numa-node",
+			scopeName:      "pod",
+			expectedScope:  "pod",
 		},
 		{
 			description:   "Policy is set to unknown",
 			policyName:    "unknown",
+			scopeName:     "container",
+			expectedScope: "container",
 			expectedError: fmt.Errorf("unknown policy: \"unknown\""),
 		},
 	}
 
 	for _, tc := range tcases {
-		mngr, err := NewManager(nil, tc.policyName)
+		mngr, err := NewManager(nil, tc.policyName, tc.scopeName)
 
 		if tc.expectedError != nil {
 			if !strings.Contains(err.Error(), tc.expectedError.Error()) {

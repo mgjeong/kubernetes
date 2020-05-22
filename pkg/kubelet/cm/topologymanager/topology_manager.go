@@ -37,6 +37,14 @@ const (
 	// present on a machine and the TopologyManager is enabled, an error will
 	// be returned and the TopologyManager will not be loaded.
 	maxAllowableNUMANodes = 8
+	// unexpectedAdmissionError specifies the error code of podAdmitError()
+	unexpectedAdmissionError = 0
+	// topologyAffinityError specifies the error code of podAdmitError()
+	topologyAffinityError = 1
+	// containerScopeTopology specifies the TopologyManagerScope per container.
+	containerScopeTopology = "container"
+	// podScopeTopology specifies the TopologyManagerScope per pod.
+	podScopeTopology = "pod"
 )
 
 //Manager interface provides methods for Kubelet to manage pod topology hints
@@ -65,6 +73,8 @@ type manager struct {
 	podMap map[string]string
 	//Topology Manager Policy
 	policy Policy
+	//Topology Manager Scope
+	topologyScope string
 }
 
 // HintProvider is an interface for components that want to collaborate to
@@ -101,6 +111,9 @@ type TopologyHint struct {
 	Preferred bool
 }
 
+// PodAdmitFunc bg.chun: usally we define new type, ex) type ActivePodsFunc func() []*v1.Pod
+type PodAdmitFunc func(*manager, *v1.Pod) lifecycle.PodAdmitResult
+
 // IsEqual checks if TopologyHint are equal
 func (th *TopologyHint) IsEqual(topologyHint TopologyHint) bool {
 	if th.Preferred == topologyHint.Preferred {
@@ -125,7 +138,7 @@ func (th *TopologyHint) LessThan(other TopologyHint) bool {
 var _ Manager = &manager{}
 
 //NewManager creates a new TopologyManager based on provided policy
-func NewManager(numaNodeInfo cputopology.NUMANodeInfo, topologyPolicyName string) (Manager, error) {
+func NewManager(numaNodeInfo cputopology.NUMANodeInfo, topologyPolicyName string, topologyScopeName string) (Manager, error) {
 	klog.Infof("[topologymanager] Creating topology manager with %s policy", topologyPolicyName)
 
 	var numaNodes []int
@@ -156,6 +169,10 @@ func NewManager(numaNodeInfo cputopology.NUMANodeInfo, topologyPolicyName string
 		return nil, fmt.Errorf("unknown policy: \"%s\"", topologyPolicyName)
 	}
 
+	if topologyScopeName != containerScopeTopology && topologyScopeName != podScopeTopology {
+		return nil, fmt.Errorf("unknown scope: \"%s\"", topologyScopeName)
+	}
+
 	var hp []HintProvider
 	pth := make(map[string]map[string]TopologyHint)
 	pm := make(map[string]string)
@@ -164,6 +181,7 @@ func NewManager(numaNodeInfo cputopology.NUMANodeInfo, topologyPolicyName string
 		podTopologyHints: pth,
 		podMap:           pm,
 		policy:           policy,
+		topologyScope:    topologyScopeName,
 	}
 
 	return manager, nil
@@ -236,43 +254,86 @@ func (m *manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitR
 	klog.Infof("[topologymanager] Topology Admit Handler")
 	pod := attrs.Pod
 
-	for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
-		if m.policy.Name() == PolicyNone {
+	// Exception - Policy : none
+	if m.policy.Name() == PolicyNone {
+		for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
 			err := m.allocateAlignedResources(pod, &container)
 			if err != nil {
-				return lifecycle.PodAdmitResult{
-					Message: fmt.Sprintf("Allocate failed due to %v, which is unexpected", err),
-					Reason:  "UnexpectedAdmissionError",
-					Admit:   false,
-				}
+				return podAdmitError(unexpectedAdmissionError, err)
 			}
-			continue
 		}
+		return lifecycle.PodAdmitResult{Admit: true}
+	}
 
+	if m.topologyScope == "pod" {
+		return m.podBasisAdmit(pod)
+	}
+
+	return m.containerBasisAdmit(pod)
+}
+
+func (m *manager) containerBasisAdmit(pod *v1.Pod) lifecycle.PodAdmitResult {
+	for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
 		result, admit := m.calculateAffinity(pod, &container)
 		if !admit {
-			return lifecycle.PodAdmitResult{
-				Message: "Resources cannot be allocated with Topology locality",
-				Reason:  "TopologyAffinityError",
-				Admit:   false,
-			}
+			return podAdmitError(topologyAffinityError, nil)
 		}
-
 		klog.Infof("[topologymanager] Topology Affinity for (pod: %v container: %v): %v", pod.UID, container.Name, result)
 		if m.podTopologyHints[string(pod.UID)] == nil {
 			m.podTopologyHints[string(pod.UID)] = make(map[string]TopologyHint)
 		}
 		m.podTopologyHints[string(pod.UID)][container.Name] = result
-
 		err := m.allocateAlignedResources(pod, &container)
 		if err != nil {
-			return lifecycle.PodAdmitResult{
-				Message: fmt.Sprintf("Allocate failed due to %v, which is unexpected", err),
-				Reason:  "UnexpectedAdmissionError",
-				Admit:   false,
-			}
+			return podAdmitError(unexpectedAdmissionError, err)
 		}
 	}
 
 	return lifecycle.PodAdmitResult{Admit: true}
+}
+
+func (m *manager) podBasisAdmit(pod *v1.Pod) lifecycle.PodAdmitResult {
+	var providersHints []map[string][]TopologyHint
+	for _, provider := range m.hintProviders {
+		// Get the TopologyHints for Pod from a provider.
+		hints := provider.GetPodLevelTopologyHints(pod)
+		providersHints = append(providersHints, hints)
+		klog.Infof("[topologymanager] TopologyHints for pod '%v': %v", pod.Name, hints)
+	}
+	result, admit := m.policy.Merge(providersHints)
+	klog.Infof("[topologymanager] Best TopologyHint for pod : %v", result)
+	if !admit {
+		return podAdmitError(topologyAffinityError, nil)
+	}
+	if m.podTopologyHints[string(pod.UID)] == nil {
+		m.podTopologyHints[string(pod.UID)] = make(map[string]TopologyHint)
+	}
+	for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
+		klog.Infof("[topologymanager] Topology Affinity for (pod: %v container: %v): %v", pod.UID, container.Name, result)
+		m.podTopologyHints[string(pod.UID)][container.Name] = result
+		err := m.allocateAlignedResources(pod, &container)
+		if err != nil {
+			return podAdmitError(unexpectedAdmissionError, err)
+		}
+	}
+	return lifecycle.PodAdmitResult{Admit: true}
+}
+
+func podAdmitError(errCode int, err error) lifecycle.PodAdmitResult {
+	switch errCode {
+
+	case topologyAffinityError:
+		return lifecycle.PodAdmitResult{
+			Message: "Resources cannot be allocated with Topology locality",
+			Reason:  "TopologyAffinityError",
+			Admit:   false,
+		}
+
+	default:
+		return lifecycle.PodAdmitResult{
+			Message: fmt.Sprintf("Allocate failed due to %v, which is unexpected", err),
+			Reason:  "UnexpectedAdmissionError",
+			Admit:   false,
+		}
+	}
 }

@@ -354,8 +354,68 @@ func (p *staticPolicy) GetTopologyHints(s state.State, pod *v1.Pod, container *v
 	}
 }
 
+func (p *staticPolicy) getRequestedCPU(pod *v1.Pod, containers []v1.Container) int {
+	requestedCPU := 0
+	for _, container := range containers {
+		if _, ok := container.Resources.Requests[v1.ResourceCPU]; !ok {
+			continue
+		}
+		// Get a count of how many guaranteed CPUs have been requested.
+		requestedCPU += p.guaranteedCPUs(pod, &container)
+	}
+	return requestedCPU
+}
+
+func (p *staticPolicy) getPodRequestedCPU(pod *v1.Pod) int {
+	// The sum of requested CPUs by init containers.
+	requestedByInitContainers := p.getRequestedCPU(pod, pod.Spec.InitContainers)
+	// The sum of requested CPUs by user containers.
+	requestedByUserContainers := p.getRequestedCPU(pod, pod.Spec.Containers)
+
+	requestedByPod := requestedByUserContainers
+	if requestedByInitContainers > requestedByUserContainers {
+		requestedByPod = requestedByInitContainers
+	}
+	return requestedByPod
+}
+
 func (p *staticPolicy) GetPodLevelTopologyHints(s state.State, pod *v1.Pod) map[string][]topologymanager.TopologyHint {
-	return nil
+	// Get a count of how many guaranteed CPUs have been requested by Pod.
+	requestedByPod := p.getPodRequestedCPU(pod)
+
+	if requestedByPod == 0 {
+		return nil
+	}
+
+	assignedCPUs := cpuset.NewCPUSet()
+	for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
+		requested := p.guaranteedCPUs(pod, &container)
+		if allocated, exists := s.GetCPUSet(string(pod.UID), container.Name); exists {
+			if allocated.Size() != requested {
+				klog.Errorf("[cpumanager] CPUs already allocated to (pod %v, container %v) with different number than request: requested: %d, allocated: %d", string(pod.UID), container.Name, requested, allocated.Size())
+				return map[string][]topologymanager.TopologyHint{
+					string(v1.ResourceCPU): {},
+				}
+			}
+			assignedCPUs = assignedCPUs.Union(allocated)
+		}
+	}
+	if assignedCPUs.Size() == requestedByPod {
+		klog.Infof("[cpumanager] Regenerating TopologyHints for CPUs already allocated to pod %v", string(pod.UID))
+		return map[string][]topologymanager.TopologyHint{
+			string(v1.ResourceCPU): p.generateCPUTopologyHints(assignedCPUs, requestedByPod),
+		}
+	}
+
+	// Get a list of available CPUs.
+	available := p.assignableCPUs(s)
+
+	// Generate hints.
+	cpuHints := p.generateCPUTopologyHints(available, requestedByPod)
+	klog.Infof("[cpumanager] TopologyHints generated for pod '%v' : %v", pod.Name, cpuHints)
+	return map[string][]topologymanager.TopologyHint{
+		string(v1.ResourceCPU): cpuHints,
+	}
 }
 
 // generateCPUtopologyHints generates a set of TopologyHints given the set of

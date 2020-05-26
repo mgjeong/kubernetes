@@ -695,6 +695,11 @@ func run(s *options.KubeletServer, kubeDeps *kubelet.Dependencies, featureGate f
 			return err
 		}
 
+		multiNUMAGroups, err := parseMultiNUMAGroups(s.MultiNUMAGroups)
+		if err != nil {
+			return err
+		}
+
 		kubeReserved, err := parseResourceList(s.KubeReserved)
 		if err != nil {
 			return err
@@ -745,6 +750,7 @@ func run(s *options.KubeletServer, kubeDeps *kubelet.Dependencies, featureGate f
 				ExperimentalCPUManagerReconcilePeriod:      s.CPUManagerReconcilePeriod.Duration,
 				ExperimentalMemoryManagerPolicy:            s.MemoryManagerPolicy,
 				ExperimentalMemoryManagerPreReservedMemory: preReservedMemoryZone,
+				ExperimentalMultiNUMAGroups:                multiNUMAGroups,
 				ExperimentalPodPidsLimit:                   s.PodPidsLimit,
 				EnforceCPULimits:                           s.CPUCFSQuota,
 				CPUCFSQuotaPeriod:                          s.CPUCFSQuotaPeriod.Duration,
@@ -1302,6 +1308,24 @@ func parsePreReservedMemoryConfig(config []map[string]string) (map[int]map[v1.Re
 	}
 
 	return parsed, nil
+}
+
+func parseMultiNUMAGroups(s [][]string) ([][]int, error) {
+	var groups [][]int
+	for _, slice := range s {
+		var group []int
+		for _, value := range slice {
+			nodeId, err := strconv.Atoi(value)
+			if err != nil {
+				return nil, err
+			}
+			group = append(group, nodeId)
+		}
+		if len(group) > 0 {
+			groups = append(groups, group)
+		}
+	}
+	return groups, nil
 }
 
 // BootstrapKubeletConfigController constructs and bootstrap a configuration controller

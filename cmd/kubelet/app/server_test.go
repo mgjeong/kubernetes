@@ -118,3 +118,35 @@ func TestValueOfPreReservedMemoryConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestParseMultiNUMAGroups(t *testing.T) {
+	testCases := []struct {
+		slice         [][]string
+		errorExpected bool
+		name          string
+	}{
+		{
+			slice:         [][]string{{"0", "1"}, {"4", "5"}},
+			errorExpected: false,
+			name:          "Valid values for cross NUMA groups",
+		},
+		{
+			slice:         [][]string{{"a", "1"}, {"4", "5"}},
+			errorExpected: true,
+			name:          "Invalid values for cross NUMA groups",
+		},
+	}
+
+	for _, test := range testCases {
+		_, err := parseMultiNUMAGroups(test.slice)
+		if test.errorExpected {
+			if err == nil {
+				t.Errorf("%s: error expected", test.name)
+			}
+		} else {
+			if err != nil {
+				t.Errorf("%s: unexpected error: %v", test.name, err)
+			}
+		}
+	}
+}

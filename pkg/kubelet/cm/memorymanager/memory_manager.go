@@ -119,7 +119,7 @@ type manager struct {
 var _ Manager = &manager{}
 
 // NewManager returns new instance of the memory manager
-func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, preReservedMemory map[int]map[v1.ResourceName]resource.Quantity, stateFileDirectory string, affinity topologymanager.Store) (Manager, error) {
+func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, preReservedMemory map[int]map[v1.ResourceName]resource.Quantity, stateFileDirectory string, affinity topologymanager.Store, multiNUMAGroups [][]int) (Manager, error) {
 	var policy Policy
 
 	switch policyType(policyName) {
@@ -133,7 +133,7 @@ func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAll
 			return nil, err
 		}
 
-		policy, err = NewPolicySingleNUMA(machineInfo, systemReserved, affinity)
+		policy, err = NewPolicySingleNUMA(machineInfo, systemReserved, affinity, multiNUMAGroups)
 		if err != nil {
 			return nil, err
 		}

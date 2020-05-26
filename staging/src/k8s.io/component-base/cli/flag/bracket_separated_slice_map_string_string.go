@@ -82,8 +82,14 @@ func (m *BracketSeparatedSliceMapStringString) String() string {
 	for _, configMap := range *m.Value {
 		tmpPairs := []string{}
 
-		for key, val := range configMap {
-			tmpPairs = append(tmpPairs, fmt.Sprintf("%s=%s", key, val))
+		var keys []string
+		for key := range configMap {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+
+		for _, key := range keys {
+			tmpPairs = append(tmpPairs, fmt.Sprintf("%s=%s", key, configMap[key]))
 		}
 
 		if len(tmpPairs) != 0 {

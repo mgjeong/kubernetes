@@ -50,7 +50,7 @@ type singleNUMAPolicy struct {
 var _ Policy = &singleNUMAPolicy{}
 
 // NewPolicySingleNUMA returns new single NUMA policy instance
-func NewPolicySingleNUMA(machineInfo *cadvisorapi.MachineInfo, reserved systemReservedMemory, affinity topologymanager.Store) (Policy, error) {
+func NewPolicySingleNUMA(machineInfo *cadvisorapi.MachineInfo, reserved systemReservedMemory, affinity topologymanager.Store, multiNUMAGroups [][]int) (Policy, error) {
 	var totalSystemReserved uint64
 	for _, node := range reserved {
 		if _, ok := node[v1.ResourceMemory]; !ok {
@@ -65,9 +65,10 @@ func NewPolicySingleNUMA(machineInfo *cadvisorapi.MachineInfo, reserved systemRe
 	}
 
 	return &singleNUMAPolicy{
-		machineInfo:    machineInfo,
-		systemReserved: reserved,
-		affinity:       affinity,
+		machineInfo:     machineInfo,
+		systemReserved:  reserved,
+		affinity:        affinity,
+		multiNUMAGroups: multiNUMAGroups,
 	}, nil
 }
 

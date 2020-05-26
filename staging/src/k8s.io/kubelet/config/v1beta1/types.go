@@ -773,6 +773,13 @@ type KubeletConfiguration struct {
 	// Default: nil
 	// +optional
 	PreReservedMemoryZone []map[string]string `json:"preReservedMemoryZone,omitempty"`
+	// A comma separated list of NUMA nodes ID's that should be used for the multi NUMA node memory allocation.
+	// Each slice will create a disjoint preferred groups of nodes for the memory allocation.
+	// For example on the machine with four NUMA nodes and with the group [0,1], you will have three preferred disjoint
+	// groups: [0,1], [2], [3].
+	// Default: nil
+	// +optional
+	MultiNUMAGroups [][]string `json:"multiNUMAGroups,omitempty"`
 }
 
 type KubeletAuthorizationMode string

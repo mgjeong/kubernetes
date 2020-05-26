@@ -36,8 +36,6 @@ const (
 	hugepages1G = "hugepages-1Gi"
 )
 
-type nodeResources map[v1.ResourceName]resource.Quantity
-
 func getPod(podUID string, containerName string, requirements *v1.ResourceRequirements) *v1.Pod {
 	return &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -53,6 +51,8 @@ func getPod(podUID string, containerName string, requirements *v1.ResourceRequir
 		},
 	}
 }
+
+type nodeResources map[v1.ResourceName]resource.Quantity
 
 // validatePreReservedMemory
 func TestValidatePreReservedMemory(t *testing.T) {

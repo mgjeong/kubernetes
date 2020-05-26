@@ -132,7 +132,11 @@ func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAll
 		if err != nil {
 			return nil, err
 		}
-		policy = NewPolicySingleNUMA(machineInfo, systemReserved, affinity)
+
+		policy, err = NewPolicySingleNUMA(machineInfo, systemReserved, affinity)
+		if err != nil {
+			return nil, err
+		}
 
 	default:
 		return nil, fmt.Errorf("unknown policy: \"%s\"", policyName)
@@ -181,7 +185,9 @@ func (m *manager) AddContainer(pod *v1.Pod, container *v1.Container, containerID
 	// Get NUMA node affinity of blocks assigned to the container during Allocate()
 	var nodes []string
 	for _, block := range m.state.GetMemoryBlocks(string(pod.UID), container.Name) {
-		nodes = append(nodes, strconv.Itoa(block.NUMAAffinity))
+		for _, nodeID := range block.NUMAAffinity {
+			nodes = append(nodes, strconv.Itoa(nodeID))
+		}
 	}
 
 	if len(nodes) < 1 {

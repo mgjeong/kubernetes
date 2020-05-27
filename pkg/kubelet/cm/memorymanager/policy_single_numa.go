@@ -543,22 +543,12 @@ func areMachineStatesEqual(ms1, ms2 state.NodeMap) bool {
 
 func (p *singleNUMAPolicy) getDefaultMachineState() state.NodeMap {
 	defaultMachineState := state.NodeMap{}
+	nodeHugepages := map[int]uint64{}
 	for _, node := range p.machineInfo.Topology {
-		// fill memory table with regular memory values
-		systemReserved := p.getResourceSystemReserved(node.Id, v1.ResourceMemory)
-		allocatable := node.Memory - systemReserved
 		defaultMachineState[node.Id] = &state.NodeState{
 			NumberOfAssignments: 0,
-			MemoryMap: map[v1.ResourceName]*state.MemoryTable{
-				v1.ResourceMemory: {
-					Allocatable:    allocatable,
-					Free:           allocatable,
-					Reserved:       0,
-					SystemReserved: systemReserved,
-					TotalMemSize:   node.Memory,
-				},
-			},
-			Nodes: []int{node.Id},
+			MemoryMap:           map[v1.ResourceName]*state.MemoryTable{},
+			Nodes:               []int{node.Id},
 		}
 
 		// fill memory table with huge pages values
@@ -575,6 +565,26 @@ func (p *singleNUMAPolicy) getDefaultMachineState() state.NodeMap {
 				SystemReserved: systemReserved,
 				TotalMemSize:   totalHugepagesSize,
 			}
+			if _, ok := nodeHugepages[node.Id]; !ok {
+				nodeHugepages[node.Id] = 0
+			}
+			nodeHugepages[node.Id] += totalHugepagesSize
+		}
+
+		// fill memory table with regular memory values
+		systemReserved := p.getResourceSystemReserved(node.Id, v1.ResourceMemory)
+
+		allocatable := node.Memory - systemReserved
+		// remove memory allocated by hugepages
+		if allocatedByHugepages, ok := nodeHugepages[node.Id]; ok {
+			allocatable -= allocatedByHugepages
+		}
+		defaultMachineState[node.Id].MemoryMap[v1.ResourceMemory] = &state.MemoryTable{
+			Allocatable:    allocatable,
+			Free:           allocatable,
+			Reserved:       0,
+			SystemReserved: systemReserved,
+			TotalMemSize:   node.Memory,
 		}
 	}
 	return defaultMachineState

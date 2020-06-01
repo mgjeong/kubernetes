@@ -38,42 +38,37 @@ func TestNewManager(t *testing.T) {
 		description    string
 		policyName     string
 		expectedPolicy string
-		scopeName      string
-		expectedScope  string
 		expectedError  error
 	}{
+		{
+			description:    "Policy is set to none",
+			policyName:     "none",
+			expectedPolicy: "none",
+		},
 		{
 			description:    "Policy is set to best-effort",
 			policyName:     "best-effort",
 			expectedPolicy: "best-effort",
-			scopeName:      "container",
-			expectedScope:  "container",
 		},
 		{
 			description:    "Policy is set to restricted",
 			policyName:     "restricted",
 			expectedPolicy: "restricted",
-			scopeName:      "container",
-			expectedScope:  "container",
 		},
 		{
 			description:    "Policy is set to single-numa-node",
 			policyName:     "single-numa-node",
 			expectedPolicy: "single-numa-node",
-			scopeName:      "pod",
-			expectedScope:  "pod",
 		},
 		{
 			description:   "Policy is set to unknown",
 			policyName:    "unknown",
-			scopeName:     "container",
-			expectedScope: "container",
 			expectedError: fmt.Errorf("unknown policy: \"unknown\""),
 		},
 	}
 
 	for _, tc := range tcases {
-		mngr, err := NewManager(nil, tc.policyName, tc.scopeName)
+		mngr, err := NewManager(nil, tc.policyName, "container")
 
 		if tc.expectedError != nil {
 			if !strings.Contains(err.Error(), tc.expectedError.Error()) {
@@ -83,6 +78,46 @@ func TestNewManager(t *testing.T) {
 			rawMgr := mngr.(*manager)
 			if rawMgr.policy.Name() != tc.expectedPolicy {
 				t.Errorf("Unexpected policy name. Have: %q wants %q", rawMgr.policy.Name(), tc.expectedPolicy)
+			}
+		}
+	}
+}
+
+func TestManagerScope(t *testing.T) {
+	tcases := []struct {
+		description   string
+		scopeName     string
+		expectedScope string
+		expectedError error
+	}{
+		{
+			description:   "Topology Manager Scope is set to container",
+			scopeName:     "container",
+			expectedScope: "container",
+		},
+		{
+			description:   "Topology Manager Scope is set to pod",
+			scopeName:     "pod",
+			expectedScope: "pod",
+		},
+		{
+			description:   "Topology Manager Scope is set to unknown",
+			scopeName:     "unknown",
+			expectedError: fmt.Errorf("unknown scope: \"unknown\""),
+		},
+	}
+
+	for _, tc := range tcases {
+		mngr, err := NewManager(nil, "best-effort", tc.scopeName)
+
+		if tc.expectedError != nil {
+			if !strings.Contains(err.Error(), tc.expectedError.Error()) {
+				t.Errorf("Unexpected error message. Have: %s wants %s", err.Error(), tc.expectedError.Error())
+			}
+		} else {
+			rawMgr := mngr.(*manager)
+			if rawMgr.topologyScope != tc.expectedScope {
+				t.Errorf("Unexpected scope name. Have: %q wants %q", rawMgr.topologyScope, tc.expectedScope)
 			}
 		}
 	}
@@ -742,8 +777,15 @@ func TestAdmit(t *testing.T) {
 		},
 	}
 	for _, tc := range tcases {
-		man := manager{
+		man1 := manager{
 			policy:           tc.policy,
+			topologyScope:    containerScopeTopology,
+			podTopologyHints: make(map[string]map[string]TopologyHint),
+			hintProviders:    tc.hp,
+		}
+		man2 := manager{
+			policy:           tc.policy,
+			topologyScope:    podScopeTopology,
 			podTopologyHints: make(map[string]map[string]TopologyHint),
 			hintProviders:    tc.hp,
 		}
@@ -764,10 +806,15 @@ func TestAdmit(t *testing.T) {
 		podAttr := lifecycle.PodAdmitAttributes{
 			Pod: pod,
 		}
-
-		actual := man.Admit(&podAttr)
-		if actual.Admit != tc.expected {
-			t.Errorf("Error occurred, expected Admit in result to be %v got %v", tc.expected, actual.Admit)
+		// container scope Admit
+		actual1 := man1.Admit(&podAttr)
+		if actual1.Admit != tc.expected {
+			t.Errorf("Error occurred, expected Admit in result to be %v got %v", tc.expected, actual1.Admit)
+		}
+		// pod scope Admit
+		actual2 := man2.Admit(&podAttr)
+		if actual2.Admit != tc.expected {
+			t.Errorf("Error occurred, expected Admit in result to be %v got %v", tc.expected, actual2.Admit)
 		}
 	}
 }

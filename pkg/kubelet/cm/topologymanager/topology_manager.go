@@ -37,14 +37,17 @@ const (
 	// present on a machine and the TopologyManager is enabled, an error will
 	// be returned and the TopologyManager will not be loaded.
 	maxAllowableNUMANodes = 8
-	// unexpectedAdmissionError specifies the error code of podAdmitError()
-	unexpectedAdmissionError = 0
-	// topologyAffinityError specifies the error code of podAdmitError()
-	topologyAffinityError = 1
 	// containerScopeTopology specifies the TopologyManagerScope per container.
 	containerScopeTopology = "container"
 	// podScopeTopology specifies the TopologyManagerScope per pod.
 	podScopeTopology = "pod"
+)
+
+const (
+	// topologyAffinityError specifies the error code of podAdmitError()
+	topologyAffinityError = iota
+	// unexpectedAdmissionError specifies the error code of podAdmitError()
+	unexpectedAdmissionError
 )
 
 //Manager interface provides methods for Kubelet to manage pod topology hints
@@ -111,9 +114,6 @@ type TopologyHint struct {
 	Preferred bool
 }
 
-// PodAdmitFunc bg.chun: usally we define new type, ex) type ActivePodsFunc func() []*v1.Pod
-type PodAdmitFunc func(*manager, *v1.Pod) lifecycle.PodAdmitResult
-
 // IsEqual checks if TopologyHint are equal
 func (th *TopologyHint) IsEqual(topologyHint TopologyHint) bool {
 	if th.Preferred == topologyHint.Preferred {
@@ -139,7 +139,7 @@ var _ Manager = &manager{}
 
 //NewManager creates a new TopologyManager based on provided policy
 func NewManager(numaNodeInfo cputopology.NUMANodeInfo, topologyPolicyName string, topologyScopeName string) (Manager, error) {
-	klog.Infof("[topologymanager] Creating topology manager with %s policy", topologyPolicyName)
+	klog.Infof("[topologymanager] Creating topology manager with %s policy per %s scope", topologyPolicyName, topologyScopeName)
 
 	var numaNodes []int
 	for node := range numaNodeInfo {
@@ -264,8 +264,8 @@ func (m *manager) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitR
 		}
 		return lifecycle.PodAdmitResult{Admit: true}
 	}
-
-	if m.topologyScope == "pod" {
+	klog.Infof("[topologymanager] Topology Scope : %v", m.topologyScope)
+	if m.topologyScope == podScopeTopology {
 		return m.podBasisAdmit(pod)
 	}
 

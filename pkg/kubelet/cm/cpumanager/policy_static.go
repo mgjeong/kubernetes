@@ -354,9 +354,9 @@ func (p *staticPolicy) GetTopologyHints(s state.State, pod *v1.Pod, container *v
 	}
 }
 
-func (p *staticPolicy) getRequestedCPU(pod *v1.Pod, containers []v1.Container) int {
+func (p *staticPolicy) getRequestedCPU(pod *v1.Pod, containers *[]v1.Container) int {
 	requestedCPU := 0
-	for _, container := range containers {
+	for _, container := range *containers {
 		if _, ok := container.Resources.Requests[v1.ResourceCPU]; !ok {
 			continue
 		}
@@ -367,15 +367,31 @@ func (p *staticPolicy) getRequestedCPU(pod *v1.Pod, containers []v1.Container) i
 }
 
 func (p *staticPolicy) getPodRequestedCPU(pod *v1.Pod) int {
-	// The sum of requested CPUs by init containers.
-	requestedByInitContainers := p.getRequestedCPU(pod, pod.Spec.InitContainers)
-	// The sum of requested CPUs by user containers.
-	requestedByUserContainers := p.getRequestedCPU(pod, pod.Spec.Containers)
+	// The maximum of requested CPUs by init containers.
+	requestedByInitContainers := 0
+	for _, container := range pod.Spec.InitContainers {
+		if _, ok := container.Resources.Requests[v1.ResourceCPU]; !ok {
+			continue
+		}
+		requestedCPU := p.guaranteedCPUs(pod, &container)
+		if requestedCPU > requestedByInitContainers {
+			requestedByInitContainers = requestedCPU
+		}
+	}
+	// The sum of requested CPUs by app containers.
+	requestedByAppContainers := 0
+	for _, container := range pod.Spec.Containers {
+		if _, ok := container.Resources.Requests[v1.ResourceCPU]; !ok {
+			continue
+		}
+		requestedByAppContainers += p.guaranteedCPUs(pod, &container)
+	}
 
-	requestedByPod := requestedByUserContainers
-	if requestedByInitContainers > requestedByUserContainers {
+	requestedByPod := requestedByAppContainers
+	if requestedByInitContainers > requestedByAppContainers {
 		requestedByPod = requestedByInitContainers
 	}
+	klog.Errorf("[cpumanager] requestedByInits : %d, requestedByUsers : %d, requestedByPod : %d", requestedByInitContainers, requestedByAppContainers, requestedByPod)
 	return requestedByPod
 }
 

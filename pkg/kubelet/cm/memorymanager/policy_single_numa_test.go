@@ -239,7 +239,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 							Free:           1536 * mb,
 							Reserved:       0,
 							SystemReserved: 512 * mb,
-							TotalMemSize:   2 * gb,
+							TotalMemSize:   3 * gb,
 						},
 						hugepages1Gi: {
 							Allocatable:    gb,
@@ -262,7 +262,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 				Topology: []cadvisorapi.Node{
 					{
 						Id:     0,
-						Memory: 2 * gb,
+						Memory: 3 * gb,
 						HugePages: []cadvisorapi.HugePagesInfo{
 							{
 								// size in KB
@@ -907,7 +907,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 							Free:           0,
 							Reserved:       640 * mb,
 							SystemReserved: 512 * mb,
-							TotalMemSize:   1152 * mb,
+							TotalMemSize:   2176 * mb,
 						},
 						hugepages1Gi: {
 							Allocatable:    gb,
@@ -927,7 +927,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 							Free:           256 * mb,
 							Reserved:       384 * mb,
 							SystemReserved: 512 * mb,
-							TotalMemSize:   1152 * mb,
+							TotalMemSize:   2176 * mb,
 						},
 						hugepages1Gi: {
 							Allocatable:    gb,
@@ -949,7 +949,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 							Free:           0,
 							Reserved:       640 * mb,
 							SystemReserved: 512 * mb,
-							TotalMemSize:   1152 * mb,
+							TotalMemSize:   2176 * mb,
 						},
 						hugepages1Gi: {
 							Allocatable:    gb,
@@ -969,7 +969,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 							Free:           256 * mb,
 							Reserved:       384 * mb,
 							SystemReserved: 512 * mb,
-							TotalMemSize:   1152 * mb,
+							TotalMemSize:   2176 * mb,
 						},
 						hugepages1Gi: {
 							Allocatable:    gb,
@@ -995,7 +995,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 				Topology: []cadvisorapi.Node{
 					{
 						Id:     0,
-						Memory: 1152 * mb,
+						Memory: 2176 * mb,
 						HugePages: []cadvisorapi.HugePagesInfo{
 							{
 								// size in KB
@@ -1006,7 +1006,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 					},
 					{
 						Id:     1,
-						Memory: 1152 * mb,
+						Memory: 2176 * mb,
 						HugePages: []cadvisorapi.HugePagesInfo{
 							{
 								// size in KB
@@ -1022,6 +1022,7 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.description, func(t *testing.T) {
+			klog.Infof("[Start] %s", testCase.description)
 			p, s, err := initTests(&testCase, nil)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)

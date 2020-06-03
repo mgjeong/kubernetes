@@ -69,6 +69,8 @@ var (
 	fakePolicySingleNUMA, _           = NewPolicySingleNUMA(&fakeMachineInfo, fakeReserved, topologymanager.NewFakeManager())
 	fakeMachineStateWithoutAssignment = state.NodeMap{
 		0: &state.NodeState{
+			Nodes: []int{0},
+			NumberOfAssignments: 0,
 			MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 				v1.ResourceMemory: {
 					Allocatable:    127 * gb,
@@ -87,6 +89,8 @@ var (
 			},
 		},
 		1: &state.NodeState{
+			Nodes: []int{1},
+			NumberOfAssignments: 0,
 			MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 				v1.ResourceMemory: {
 					Allocatable:    127 * gb,
@@ -107,6 +111,8 @@ var (
 	}
 	fakeMachineStateWithOneAssignment = state.NodeMap{
 		0: &state.NodeState{
+			Nodes: []int{0},
+			NumberOfAssignments: 2,
 			MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 				v1.ResourceMemory: {
 					Allocatable:    127 * gb,
@@ -117,14 +123,16 @@ var (
 				},
 				hugepages1Gi: {
 					Allocatable:    10 * gb,
-					Free:           10 * gb,
-					Reserved:       0,
+					Free:           9 * gb,
+					Reserved:       1 * gb,
 					SystemReserved: 0,
 					TotalMemSize:   10 * gb,
 				},
 			},
 		},
 		1: &state.NodeState{
+			Nodes: []int{1},
+			NumberOfAssignments: 0,
 			MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 				v1.ResourceMemory: {
 					Allocatable:    127 * gb,
@@ -145,6 +153,8 @@ var (
 	}
 	fakeMachineStateWithTwoAssignment = state.NodeMap{
 		0: &state.NodeState{
+			Nodes: []int{0},
+			NumberOfAssignments: 4,
 			MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 				v1.ResourceMemory: {
 					Allocatable:    127 * gb,
@@ -155,14 +165,16 @@ var (
 				},
 				hugepages1Gi: {
 					Allocatable:    10 * gb,
-					Free:           10 * gb,
-					Reserved:       0,
-					SystemReserved: 0,
+					Free:           8 * gb,
+					Reserved:       2 * gb,
+					SystemReserved: 0 * gb,
 					TotalMemSize:   10 * gb,
 				},
 			},
 		},
 		1: &state.NodeState{
+			Nodes: []int{1},
+			NumberOfAssignments: 0,
 			MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 				v1.ResourceMemory: {
 					Allocatable:    127 * gb,
@@ -564,10 +576,11 @@ func TestRemoveStaleState(t *testing.T) {
 
 			mgr.removeStaleState()
 
-			if !reflect.DeepEqual(mgr.state.GetMemoryAssignments(), testCase.expContainerMemoryAssignments) {
+			if !areContainerMemoryAssignmentsEqual(mgr.state.GetMemoryAssignments(), testCase.expContainerMemoryAssignments) {
 				t.Errorf("Memory Manager removeStaleState() error, expected assignments %v but got: %v",
 					testCase.expContainerMemoryAssignments, mgr.state.GetMemoryAssignments())
 			}
+
 		})
 
 	}
@@ -656,9 +669,9 @@ func TestAddContainer(t *testing.T) {
 				t.Errorf("Memory Manager AddContainer() error (%v), expected error: %v but got: %v",
 					testCase.description, testCase.expAddContainerErr, err)
 			}
-			if !reflect.DeepEqual(mgr.state.GetMachineState(), testCase.expMachineState) {
-				//t.Errorf("Memory Manager MachineState error, expected free memory on NUMA 0: %+v Gb but got: %+v Gb, expected free hugepages on NUMA 0: %+v Gb but got %+v Gb",
-				//testCase.expMachineState[0]["memory"].Free/gb, mgr.state.GetMachineState()[0]["memory"].Free/gb, testCase.expMachineState[0]["hugepages-1Gi"].Free/gb, mgr.state.GetMachineState()[0]["hugepages-1Gi"].Free/gb)
+
+			if !areMachineStatesEqual(mgr.state.GetMachineState(), testCase.expMachineState) {
+				t.Fatalf("The actual machine state: %v is different from the expected one: %v", mgr.state.GetMachineState(), testCase.expMachineState)
 			}
 		})
 	}
@@ -732,14 +745,14 @@ func TestRemoveContainer(t *testing.T) {
 				t.Errorf("Memory Manager RemoveContainer() error (%v), expected error: %v but got: %v",
 					testCase.description, testCase.expError, err)
 			}
-			if !reflect.DeepEqual(mgr.state.GetMemoryAssignments(), testCase.expContainerMemoryAssignments) {
-				t.Errorf("Memory Manager RemoveContainer() inconsistent assignment, expected: %+v but got: %+v, start %+v",
+
+			if !areContainerMemoryAssignmentsEqual(mgr.state.GetMemoryAssignments(), testCase.expContainerMemoryAssignments){
+				t.Fatalf("Memory Manager RemoveContainer() inconsistent assignment, expected: %+v but got: %+v, start %+v",
 					testCase.expContainerMemoryAssignments, mgr.state.GetMemoryAssignments(), testCase.expContainerMemoryAssignments)
 			}
 
-			if !reflect.DeepEqual(mgr.state.GetMachineState(), testCase.expMachineState) {
-				//t.Errorf("Memory Manager MachineState error, expected state %+v but got: %+v",
-				//testCase.expMachineState[0]["memory"], mgr.state.GetMachineState()[0]["memory"])
+			if !areMachineStatesEqual(mgr.state.GetMachineState(), testCase.expMachineState){
+				t.Fatalf("The actual machine state: %v is different from the expected one: %v", mgr.state.GetMachineState(), testCase.expMachineState)
 			}
 		})
 	}
@@ -842,4 +855,80 @@ func TestNewManager(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetTopologyHints(t *testing.T){
+	testCases := []struct {
+		description                   string
+		policy                        Policy
+		assignments                   state.ContainerMemoryAssignments
+		machineState                  state.NodeMap
+		expError                      error
+		expHints											map[string][]topologymanager.TopologyHint
+	}{
+		{
+			description:                   "Successful hint generation",
+			policy:                        fakePolicySingleNUMA,
+			assignments:                   fakeAssignmentsTwoContainer,
+			machineState:                  fakeMachineStateWithTwoAssignment,
+			expError:                      nil,
+			expHints:	map[string][]topologymanager.TopologyHint{
+				string(v1.ResourceMemory): {
+					{
+						NUMANodeAffinity: newNUMAAffinity(0),
+						Preferred: true,
+					},
+					{
+						NUMANodeAffinity: newNUMAAffinity(1),
+						Preferred: true,
+					},
+					{
+						NUMANodeAffinity: newNUMAAffinity(0,1),
+						Preferred: false,
+					},
+				},
+				string(hugepages1Gi): {
+					{
+						NUMANodeAffinity: newNUMAAffinity(0),
+						Preferred: true,
+					},
+					{
+						NUMANodeAffinity: newNUMAAffinity(1),
+						Preferred: true,
+					},
+					{
+						NUMANodeAffinity: newNUMAAffinity(0,1),
+						Preferred: false,
+					},
+				},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.description, func(t *testing.T) {
+			mgr := &manager{
+				policy:       testCase.policy,
+				state:        state.NewMemoryState(),
+				containerMap: containermap.NewContainerMap(),
+				containerRuntime: mockRuntimeService{
+					err: nil,
+				},
+				activePods:        func() []*v1.Pod { return nil },
+				podStatusProvider: mockPodStatusProvider{},
+			}
+			mgr.sourcesReady = &sourcesReadyStub{}
+			mgr.state.SetMachineState(testCase.machineState.Clone())
+			mgr.state.SetMemoryAssignments(testCase.assignments.Clone())
+
+			pod := getPod("fakePod1", "fakeContainer1", requirementsGuaranteed)
+			container := &pod.Spec.Containers[0]
+			hints := mgr.GetTopologyHints(pod, container)
+			if !reflect.DeepEqual(hints, testCase.expHints) {
+				t.Errorf("Hints were not generated properly. Hints generated %+v, hints expected %+v",
+					hints, testCase.expHints)
+			}
+		})
+	}
+
 }

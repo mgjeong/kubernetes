@@ -61,19 +61,22 @@ type testMemoryManager struct {
 	expectedHints map[string][]topologymanager.TopologyHint
 	expectedReserved systemReservedMemory
 	reserved systemReservedMemory
+	podAllocate *v1.Pod
+	firstPod *v1.Pod
+	activePods []*v1.Pod
 }
 
 func returnPolicyByName(testCase testMemoryManager) Policy {
 	switch testCase.policyName {
-		case "mock":
-			return &mockPolicy{
-				err: fmt.Errorf("Fake reg error"),
-			}
-		case "single-numa":
-			policy, _ := NewPolicySingleNUMA(&testCase.machineInfo,testCase.reserved,topologymanager.NewFakeManager())
-			return policy
-		case "none":
-			return NewPolicyNone()
+	case "mock":
+		return &mockPolicy{
+			err: fmt.Errorf("Fake reg error"),
+		}
+	case "single-numa":
+		policy, _ := NewPolicySingleNUMA(&testCase.machineInfo,testCase.reserved,topologymanager.NewFakeManager())
+		return policy
+	case "none":
+		return NewPolicyNone()
 	}
 	return nil
 }
@@ -297,6 +300,30 @@ func TestConvertPreReserved(t *testing.T) {
 }
 
 func TestGetSystemReservedMemory(t *testing.T) {
+	machineInfo := cadvisorapi.MachineInfo{
+		Topology: []cadvisorapi.Node{
+			{
+				Id:     0,
+				Memory: 10 * gb,
+				HugePages: []cadvisorapi.HugePagesInfo{
+					{
+						PageSize: pageSize1Gb,
+						NumPages: 5,
+					},
+				},
+			},
+			{
+				Id:     1,
+				Memory: 10 * gb,
+				HugePages: []cadvisorapi.HugePagesInfo{
+					{
+						PageSize: pageSize1Gb,
+						NumPages: 5,
+					},
+				},
+			},
+		},
+	}
 	testCases := []testMemoryManager{
 		{
 			description:                "Should return empty map when reservation is not done",
@@ -307,61 +334,7 @@ func TestGetSystemReservedMemory(t *testing.T) {
 				1: {},
 			},
 			expectedError: nil,
-			machineInfo: cadvisorapi.MachineInfo{
-				Topology: []cadvisorapi.Node{
-					{
-						Id:     0,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-					{
-						Id:     1,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-				},
-			},
-		},
-		{
-			description:                "Should return error when Allocatable reservation is not equal pre reserved memory",
-			nodeAllocatableReservation: v1.ResourceList{v1.ResourceMemory: *resource.NewQuantity(gb, resource.BinarySI)},
-			preReservedMemory:          map[int]map[v1.ResourceName]resource.Quantity{},
-			expectedReserved:                nil,
-			expectedError:                     fmt.Errorf("the total amount of memory of type \"memory\" is not equal to the value determined by Node Allocatable feature"),
-			machineInfo: cadvisorapi.MachineInfo{
-				Topology: []cadvisorapi.Node{
-					{
-						Id:     0,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-					{
-						Id:     1,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-				},
-			},
+			machineInfo: machineInfo,
 		},
 		{
 			description:                "Should return error when Allocatable reservation is not equal pre reserved memory",
@@ -371,30 +344,7 @@ func TestGetSystemReservedMemory(t *testing.T) {
 			},
 			expectedReserved: nil,
 			expectedError:      fmt.Errorf("the total amount of memory of type \"memory\" is not equal to the value determined by Node Allocatable feature"),
-			machineInfo: cadvisorapi.MachineInfo{
-				Topology: []cadvisorapi.Node{
-					{
-						Id:     0,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-					{
-						Id:     1,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-				},
-			},
+			machineInfo: machineInfo,
 		},
 		{
 			description:                "Reserved should be equal to preReservedMemory",
@@ -412,30 +362,7 @@ func TestGetSystemReservedMemory(t *testing.T) {
 				},
 			},
 			expectedError:      nil,
-			machineInfo: cadvisorapi.MachineInfo{
-				Topology: []cadvisorapi.Node{
-					{
-						Id:     0,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-					{
-						Id:     1,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-				},
-			},
+			machineInfo: machineInfo,
 		},
 	}
 
@@ -444,11 +371,11 @@ func TestGetSystemReservedMemory(t *testing.T) {
 			res, err := getSystemReservedMemory(&testCase.machineInfo, testCase.nodeAllocatableReservation, testCase.preReservedMemory)
 
 			if !reflect.DeepEqual(res, testCase.expectedReserved) {
-				t.Errorf("Memory Manager getReservedMemory() error, expected reserved %+v but got: %+v",
+				t.Errorf("Memory Manager getReservedMemory() error, expected reserved %+v, but got: %+v",
 					testCase.expectedReserved, res)
 			}
 			if !reflect.DeepEqual(err, testCase.expectedError) {
-				t.Errorf("Memory Manager getReservedMemory() error, expected error %v but got: %v",
+				t.Errorf("Memory Manager getReservedMemory() error, expected error %v, but got: %v",
 					testCase.expectedError, err)
 			}
 
@@ -457,34 +384,35 @@ func TestGetSystemReservedMemory(t *testing.T) {
 }
 
 func TestRemoveStaleState(t *testing.T) {
+	machineInfo := cadvisorapi.MachineInfo{
+		Topology: []cadvisorapi.Node{
+			{
+				Id:     0,
+				Memory: 10 * gb,
+				HugePages: []cadvisorapi.HugePagesInfo{
+					{
+						PageSize: pageSize1Gb,
+						NumPages: 5,
+					},
+				},
+			},
+			{
+				Id:     1,
+				Memory: 10 * gb,
+				HugePages: []cadvisorapi.HugePagesInfo{
+					{
+						PageSize: pageSize1Gb,
+						NumPages: 5,
+					},
+				},
+			},
+		},
+	}
 	testCases := []testMemoryManager{
 		{
 			description: "Should fail - policy returns an error",
 			policyName: "mock",
-			machineInfo: 	cadvisorapi.MachineInfo{
-					Topology: []cadvisorapi.Node{
-						{
-							Id:     0,
-							Memory: 10 * gb,
-							HugePages: []cadvisorapi.HugePagesInfo{
-								{
-									PageSize: pageSize1Gb,
-									NumPages: 5,
-								},
-							},
-						},
-						{
-							Id:     1,
-							Memory: 10 * gb,
-							HugePages: []cadvisorapi.HugePagesInfo{
-								{
-									PageSize: pageSize1Gb,
-									NumPages: 5,
-								},
-							},
-						},
-					},
-				},
+			machineInfo:  machineInfo,
 			reserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 1 * gb,
@@ -635,32 +563,9 @@ func TestRemoveStaleState(t *testing.T) {
 			},
 		},
 		{
-			description:                   "Stale state succesfuly removed",
+			description:                   "Stale state succesfuly removed, without multi NUMA assignments",
 			policyName:                        "single-numa",
-			machineInfo: cadvisorapi.MachineInfo{
-				Topology: []cadvisorapi.Node{
-					{
-						Id:     0,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-					{
-						Id:     1,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-				},
-			},
+			machineInfo: machineInfo,
 			reserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 1 * gb,
@@ -783,6 +688,132 @@ func TestRemoveStaleState(t *testing.T) {
 				},
 			},
 		},
+		{
+			description:                   "Stale state succesfuly removed, with multi NUMA assignments",
+			policyName:                        "single-numa",
+			machineInfo: machineInfo,
+			reserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+			},
+			assignments:                   state.ContainerMemoryAssignments{
+				"fakePod1": map[string][]state.Block{
+					"fakeContainer1": {
+						{
+							NUMAAffinity: []int{0,1},
+							Type:         v1.ResourceMemory,
+							Size:         12 * gb,
+						},
+						{
+							NUMAAffinity: []int{0,1},
+							Type:         hugepages1Gi,
+							Size:         1 * gb,
+						},
+					},
+					"fakeContainer2": {
+						{
+							NUMAAffinity: []int{0,1},
+							Type:         v1.ResourceMemory,
+							Size:         1 * gb,
+						},
+						{
+							NUMAAffinity: []int{0,1},
+							Type:         hugepages1Gi,
+							Size:         1 * gb,
+						},
+					},
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{},
+			machineState:                  state.NodeMap{
+				0: &state.NodeState{
+					Nodes: []int{0,1},
+					NumberOfAssignments: 4,
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           0 * gb,
+							Reserved:       9 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    5 * gb,
+							Free:           4 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 0 * gb,
+							TotalMemSize:   5 * gb,
+						},
+					},
+				},
+				1: &state.NodeState{
+					Nodes: []int{0,1},
+					NumberOfAssignments: 4,
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           5 * gb,
+							Reserved:       4 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    5 * gb,
+							Free:           4 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   5 * gb,
+						},
+					},
+				},
+			},
+			expectedMachineState:               state.NodeMap{
+				0: &state.NodeState{
+					Nodes: []int{0},
+					NumberOfAssignments: 0,
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    5 * gb,
+							Free:           5 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   5 * gb,
+						},
+					},
+				},
+				1: &state.NodeState{
+					Nodes: []int{1},
+					NumberOfAssignments: 0,
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    5 * gb,
+							Free:           5 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   5 * gb,
+						},
+					},
+				},
+			},
+		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.description, func(t *testing.T) {
@@ -803,7 +834,7 @@ func TestRemoveStaleState(t *testing.T) {
 			mgr.removeStaleState()
 
 			if !areContainerMemoryAssignmentsEqual(mgr.state.GetMemoryAssignments(), testCase.expectedAssignments) {
-				t.Errorf("Memory Manager removeStaleState() error, expected assignments %v but got: %v",
+				t.Errorf("Memory Manager removeStaleState() error, expected assignments %v, but got: %v",
 					testCase.expectedAssignments, mgr.state.GetMemoryAssignments())
 			}
 			if !areMachineStatesEqual(mgr.state.GetMachineState(), testCase.expectedMachineState) {
@@ -815,43 +846,45 @@ func TestRemoveStaleState(t *testing.T) {
 }
 
 func TestAddContainer(t *testing.T) {
-	testCases := []testMemoryManager {
-		{
-			description:        "Correct allocation and adding container on NUMA 0.",
-			policyName:             "single-numa",
-			machineInfo: 	cadvisorapi.MachineInfo{
-					Topology: []cadvisorapi.Node{
+	machineInfo := cadvisorapi.MachineInfo{
+			Topology: []cadvisorapi.Node{
+				{
+					Id:     0,
+					Memory: 10 * gb,
+					HugePages: []cadvisorapi.HugePagesInfo{
 						{
-							Id:     0,
-							Memory: 10 * gb,
-							HugePages: []cadvisorapi.HugePagesInfo{
-								{
-									PageSize: pageSize1Gb,
-									NumPages: 5,
-								},
-							},
-						},
-						{
-							Id:     1,
-							Memory: 10 * gb,
-							HugePages: []cadvisorapi.HugePagesInfo{
-								{
-									PageSize: pageSize1Gb,
-									NumPages: 5,
-								},
-							},
+							PageSize: pageSize1Gb,
+							NumPages: 5,
 						},
 					},
 				},
-			reserved: systemReservedMemory{
-				0: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-				1: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
+				{
+					Id:     1,
+					Memory: 10 * gb,
+					HugePages: []cadvisorapi.HugePagesInfo{
+						{
+							PageSize: pageSize1Gb,
+							NumPages: 5,
+						},
+					},
 				},
 			},
-			assignments:        state.ContainerMemoryAssignments{},
+		}
+	reserved := systemReservedMemory{
+		0: map[v1.ResourceName]uint64{
+			v1.ResourceMemory: 1 * gb,
+		},
+		1: map[v1.ResourceName]uint64{
+			v1.ResourceMemory: 1 * gb,
+		},
+	}
+	pod := getPod("fakePod1", "fakeContainer1", requirementsGuaranteed)
+	testCases := []testMemoryManager {
+		{
+			description:        "Correct allocation and adding container on NUMA 0",
+			policyName:             "single-numa",
+			machineInfo: 	machineInfo,
+			reserved: reserved,
 			machineState:       state.NodeMap{
 				0: &state.NodeState{
 					Nodes: []int{0},
@@ -939,86 +972,30 @@ func TestAddContainer(t *testing.T) {
 			expectedAllocateError:     nil,
 			expectedAddContainerError: nil,
 			updateError:          nil,
+			podAllocate: pod,
+			assignments: state.ContainerMemoryAssignments{},
+			activePods: nil,
 		},
 		{
-			description:        "Shouldn't return any error when policy is None.",
+			description:        "Shouldn't return any error when policy is set as None",
 			updateError:          nil,
 			policyName:             "none",
-			machineInfo: 	cadvisorapi.MachineInfo{
-					Topology: []cadvisorapi.Node{
-						{
-							Id:     0,
-							Memory: 10 * gb,
-							HugePages: []cadvisorapi.HugePagesInfo{
-								{
-									PageSize: pageSize1Gb,
-									NumPages: 5,
-								},
-							},
-						},
-						{
-							Id:     1,
-							Memory: 10 * gb,
-							HugePages: []cadvisorapi.HugePagesInfo{
-								{
-									PageSize: pageSize1Gb,
-									NumPages: 5,
-								},
-							},
-						},
-					},
-				},
-			reserved: systemReservedMemory{
-				0: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-				1: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-			},
-			assignments:        state.ContainerMemoryAssignments{},
+			machineInfo: 	machineInfo,
+			reserved: reserved,
 			machineState:       state.NodeMap{},
 			expectedMachineState:    state.NodeMap{},
 			expectedAllocateError:     nil,
 			expectedAddContainerError: nil,
+			podAllocate: pod,
+			assignments: state.ContainerMemoryAssignments{},
+			activePods: nil,
 		},
 		{
-			description: "Allocation should fail if policy returns an error.",
+			description: "Allocation should fail if policy returns an error",
 			updateError:   nil,
 			policyName: "mock",
-			machineInfo: 	cadvisorapi.MachineInfo{
-					Topology: []cadvisorapi.Node{
-						{
-							Id:     0,
-							Memory: 10 * gb,
-							HugePages: []cadvisorapi.HugePagesInfo{
-								{
-									PageSize: pageSize1Gb,
-									NumPages: 5,
-								},
-							},
-						},
-						{
-							Id:     1,
-							Memory: 10 * gb,
-							HugePages: []cadvisorapi.HugePagesInfo{
-								{
-									PageSize: pageSize1Gb,
-									NumPages: 5,
-								},
-							},
-						},
-					},
-				},
-			reserved: systemReservedMemory{
-				0: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-				1: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-			},
-			assignments:        state.ContainerMemoryAssignments{},
+			machineInfo: 	machineInfo,
+			reserved: reserved,
 			machineState:       state.NodeMap{
 				0: &state.NodeState{
 					Nodes: []int{0},
@@ -1105,45 +1082,16 @@ func TestAddContainer(t *testing.T) {
 			},
 			expectedAllocateError:     fmt.Errorf("Fake reg error"),
 			expectedAddContainerError: nil,
-
+			podAllocate: pod,
+			assignments: state.ContainerMemoryAssignments{},
+			activePods: nil,
 		},
 		{
 			description:        "Adding container should fail (CRI error) but without an error",
 			updateError:          fmt.Errorf("Fake reg error"),
 			policyName:             "single-numa",
-			machineInfo: 	cadvisorapi.MachineInfo{
-					Topology: []cadvisorapi.Node{
-						{
-							Id:     0,
-							Memory: 10 * gb,
-							HugePages: []cadvisorapi.HugePagesInfo{
-								{
-									PageSize: pageSize1Gb,
-									NumPages: 5,
-								},
-							},
-						},
-						{
-							Id:     1,
-							Memory: 10 * gb,
-							HugePages: []cadvisorapi.HugePagesInfo{
-								{
-									PageSize: pageSize1Gb,
-									NumPages: 5,
-								},
-							},
-						},
-					},
-				},
-			reserved: systemReservedMemory{
-				0: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-				1: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-			},
-			assignments:        state.ContainerMemoryAssignments{},
+			machineInfo: 	machineInfo,
+			reserved: reserved,
 			machineState:       state.NodeMap{
 				0: &state.NodeState{
 					Nodes: []int{0},
@@ -1230,6 +1178,251 @@ func TestAddContainer(t *testing.T) {
 			},
 			expectedAllocateError:     nil,
 			expectedAddContainerError: nil,
+			podAllocate: pod,
+			assignments: state.ContainerMemoryAssignments{},
+			activePods: nil,
+		},
+		{
+			description:        "Correct allocation of container requiring amount of memory higher than capacity of one NUMA node",
+			policyName:             "single-numa",
+			machineInfo: 	machineInfo,
+			reserved: reserved,
+			machineState:       state.NodeMap{
+				0: &state.NodeState{
+					Nodes: []int{0},
+					NumberOfAssignments: 0,
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    5 * gb,
+							Free:           5 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   5 * gb,
+						},
+					},
+				},
+				1: &state.NodeState{
+					Nodes: []int{1},
+					NumberOfAssignments: 0,
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    5 * gb,
+							Free:           5 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   5 * gb,
+						},
+					},
+				},
+			},
+			expectedMachineState:    state.NodeMap{
+				0: &state.NodeState{
+					Nodes: []int{0,1},
+					NumberOfAssignments: 2,
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           0 * gb,
+							Reserved:       9 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    5 * gb,
+							Free:           1 * gb,
+							Reserved:       4 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   5 * gb,
+						},
+					},
+				},
+				1: &state.NodeState{
+					Nodes: []int{0,1},
+					NumberOfAssignments: 2,
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           6 * gb,
+							Reserved:       3 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    5 * gb,
+							Free:           5 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   5 * gb,
+						},
+					},
+				},
+			},
+			expectedAllocateError:     nil,
+			expectedAddContainerError: nil,
+			podAllocate: getPod("fakePod1","fakeContainer1", &v1.ResourceRequirements{
+				Limits: v1.ResourceList{
+					v1.ResourceCPU:    resource.MustParse("1000Mi"),
+					v1.ResourceMemory: resource.MustParse("12Gi"),
+					hugepages1Gi:      resource.MustParse("4Gi"),
+				},
+				Requests: v1.ResourceList{
+					v1.ResourceCPU:    resource.MustParse("1000Mi"),
+					v1.ResourceMemory: resource.MustParse("12Gi"),
+					hugepages1Gi:      resource.MustParse("4Gi"),
+				},
+		  }),
+			assignments: state.ContainerMemoryAssignments{},
+			activePods: nil,
+		},
+		{
+			description:        "Should fail if try to allocate container requiring amount of memory higher than capacity of one NUMA node but a small pod is already allocated",
+			policyName:             "single-numa",
+			machineInfo: 	machineInfo,
+			firstPod: pod,
+			reserved: reserved,
+			machineState:       	state.NodeMap{
+					0: &state.NodeState{
+						Nodes: []int{0},
+						NumberOfAssignments: 2,
+						MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+							v1.ResourceMemory: {
+								Allocatable:    9 * gb,
+								Free:           8 * gb,
+								Reserved:       1 * gb,
+								SystemReserved: 1 * gb,
+								TotalMemSize:   10 * gb,
+							},
+							hugepages1Gi: {
+								Allocatable:    5 * gb,
+								Free:           4 * gb,
+								Reserved:       1 * gb,
+								SystemReserved: 0,
+								TotalMemSize:   5 * gb,
+							},
+						},
+					},
+					1: &state.NodeState{
+						Nodes: []int{1},
+						NumberOfAssignments: 0,
+						MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+							v1.ResourceMemory: {
+								Allocatable:    9 * gb,
+								Free:           9 * gb,
+								Reserved:       0 * gb,
+								SystemReserved: 1 * gb,
+								TotalMemSize:   10 * gb,
+							},
+							hugepages1Gi: {
+								Allocatable:    5 * gb,
+								Free:           5 * gb,
+								Reserved:       0,
+								SystemReserved: 0,
+								TotalMemSize:   5 * gb,
+							},
+						},
+					},
+				},
+			assignments: state.ContainerMemoryAssignments{
+				"fakePod1": map[string][]state.Block{
+					"fakeContainer1": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         1 * gb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         1 * gb,
+						},
+					},
+				},
+			},
+			expectedMachineState:    state.NodeMap{
+				0: &state.NodeState{
+					Nodes: []int{0},
+					NumberOfAssignments: 2,
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           8 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    5 * gb,
+							Free:           4 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   5 * gb,
+						},
+					},
+				},
+				1: &state.NodeState{
+					Nodes: []int{1},
+					NumberOfAssignments: 0,
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    5 * gb,
+							Free:           5 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   5 * gb,
+						},
+					},
+				},
+			},
+			expectedAllocateError:     fmt.Errorf("[memorymanager] failed to get the default NUMA affinity, no NUMA nodes with enough memory is available"),
+			expectedAddContainerError: nil,
+			podAllocate: getPod("fakePod2","fakeContainer2", &v1.ResourceRequirements{
+				Limits: v1.ResourceList{
+					v1.ResourceCPU:    resource.MustParse("1000Mi"),
+					v1.ResourceMemory: resource.MustParse("12Gi"),
+					hugepages1Gi:      resource.MustParse("4Gi"),
+				},
+				Requests: v1.ResourceList{
+					v1.ResourceCPU:    resource.MustParse("1000Mi"),
+					v1.ResourceMemory: resource.MustParse("12Gi"),
+					hugepages1Gi:      resource.MustParse("4Gi"),
+				},
+			}),
+			activePods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						UID: types.UID("fakePod1"),
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name:      "fakeContainer1",
+								Resources: *requirementsGuaranteed,
+							},
+						},
+					},
+			},
+			},
 		},
 	}
 
@@ -1242,71 +1435,78 @@ func TestAddContainer(t *testing.T) {
 				containerRuntime: mockRuntimeService{
 					err: testCase.updateError,
 				},
-				activePods:        func() []*v1.Pod { return nil },
+				activePods:        func() []*v1.Pod { return testCase.activePods },
 				podStatusProvider: mockPodStatusProvider{},
 			}
 			mgr.sourcesReady = &sourcesReadyStub{}
 			mgr.state.SetMachineState(testCase.machineState)
 			mgr.state.SetMemoryAssignments(testCase.assignments)
-
-			pod := getPod("fakePod1", "fakeContainer1", requirementsGuaranteed)
+			if testCase.firstPod!=nil {
+				mgr.containerMap.Add(testCase.firstPod.Name, testCase.firstPod.Spec.Containers[0].Name, "fakeID0")
+			}
+			pod := testCase.podAllocate
 			container := &pod.Spec.Containers[0]
 			err := mgr.Allocate(pod, container)
 			if !reflect.DeepEqual(err, testCase.expectedAllocateError) {
-				t.Errorf("Memory Manager Allocate() error (%v), expected error: %v but got: %v",
+				t.Errorf("Memory Manager Allocate() error (%v), expected error: %v, but got: %v",
 					testCase.description, testCase.expectedAllocateError, err)
 			}
 			err = mgr.AddContainer(pod, container, "fakeID")
 			if !reflect.DeepEqual(err, testCase.expectedAddContainerError) {
-				t.Errorf("Memory Manager AddContainer() error (%v), expected error: %v but got: %v",
+				t.Errorf("Memory Manager AddContainer() error (%v), expected error: %v, but got: %v",
 					testCase.description, testCase.expectedAddContainerError, err)
 			}
 
 			if !areMachineStatesEqual(mgr.state.GetMachineState(), testCase.expectedMachineState) {
+				t.Errorf("[test] %+v",mgr.state.GetMemoryAssignments())
 				t.Fatalf("The actual machine state: %v is different from the expected one: %v", mgr.state.GetMachineState(), testCase.expectedMachineState)
 			}
+
+
 		})
 	}
 }
 
 func TestRemoveContainer(t *testing.T) {
+	machineInfo := cadvisorapi.MachineInfo{
+			Topology: []cadvisorapi.Node{
+				{
+					Id:     0,
+					Memory: 10 * gb,
+					HugePages: []cadvisorapi.HugePagesInfo{
+						{
+							PageSize: pageSize1Gb,
+							NumPages: 5,
+						},
+					},
+				},
+				{
+					Id:     1,
+					Memory: 10 * gb,
+					HugePages: []cadvisorapi.HugePagesInfo{
+						{
+							PageSize: pageSize1Gb,
+							NumPages: 5,
+						},
+					},
+				},
+			},
+		}
+	reserved := systemReservedMemory{
+		0: map[v1.ResourceName]uint64{
+			v1.ResourceMemory: 1 * gb,
+		},
+		1: map[v1.ResourceName]uint64{
+			v1.ResourceMemory: 1 * gb,
+		},
+	}
 	testCases := []testMemoryManager{
 		{
 			description:                   "Correct removing of a container",
 			removeContainerID:             "fakeID2",
 			policyName:                        "single-numa",
-			machineInfo: 	cadvisorapi.MachineInfo{
-					Topology: []cadvisorapi.Node{
-						{
-							Id:     0,
-							Memory: 10 * gb,
-							HugePages: []cadvisorapi.HugePagesInfo{
-								{
-									PageSize: pageSize1Gb,
-									NumPages: 5,
-								},
-							},
-						},
-						{
-							Id:     1,
-							Memory: 10 * gb,
-							HugePages: []cadvisorapi.HugePagesInfo{
-								{
-									PageSize: pageSize1Gb,
-									NumPages: 5,
-								},
-							},
-						},
-					},
-				},
-			reserved: systemReservedMemory{
-				0: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-				1: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-			},
+			machineInfo: 	machineInfo,
+			reserved: reserved,
 			assignments:                   state.ContainerMemoryAssignments{
 				"fakePod1": map[string][]state.Block{
 					"fakeContainer1": {
@@ -1438,41 +1638,147 @@ func TestRemoveContainer(t *testing.T) {
 			expectedError:                      nil,
 		},
 		{
-			description:    "Should fail if policy returns an error",
-			removeContainerID: "fakeID1",
-			policyName: "mock",
-			machineInfo: 	cadvisorapi.MachineInfo{
-					Topology: []cadvisorapi.Node{
+			description:                   "Correct removing of a multi NUMA container",
+			removeContainerID:             "fakeID2",
+			policyName:                        "single-numa",
+			machineInfo: 	machineInfo,
+			reserved: reserved,
+			assignments:                   state.ContainerMemoryAssignments{
+				"fakePod1": map[string][]state.Block{
+					"fakeContainer1": {
 						{
-							Id:     0,
-							Memory: 10 * gb,
-							HugePages: []cadvisorapi.HugePagesInfo{
-								{
-									PageSize: pageSize1Gb,
-									NumPages: 5,
-								},
-							},
+							NUMAAffinity: []int{0,1},
+							Type:         v1.ResourceMemory,
+							Size:         1 * gb,
 						},
 						{
-							Id:     1,
-							Memory: 10 * gb,
-							HugePages: []cadvisorapi.HugePagesInfo{
-								{
-									PageSize: pageSize1Gb,
-									NumPages: 5,
-								},
-							},
+							NUMAAffinity: []int{0,1},
+							Type:         hugepages1Gi,
+							Size:         1 * gb,
+						},
+					},
+					"fakeContainer2": {
+						{
+							NUMAAffinity: []int{0,1},
+							Type:         v1.ResourceMemory,
+							Size:         12 * gb,
+						},
+						{
+							NUMAAffinity: []int{0,1},
+							Type:         hugepages1Gi,
+							Size:         1 * gb,
 						},
 					},
 				},
-			reserved: systemReservedMemory{
-				0: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-				1: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"fakePod1": map[string][]state.Block{
+					"fakeContainer1": {
+						{
+							NUMAAffinity: []int{0,1},
+							Type:         v1.ResourceMemory,
+							Size:         1 * gb,
+						},
+						{
+							NUMAAffinity: []int{0,1},
+							Type:         hugepages1Gi,
+							Size:         1 * gb,
+						},
+					},
 				},
 			},
+			machineState:                  state.NodeMap{
+				0: &state.NodeState{
+					Nodes: []int{0,1},
+					NumberOfAssignments: 4,
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           0 * gb,
+							Reserved:       9 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    5 * gb,
+							Free:           3 * gb,
+							Reserved:       2 * gb,
+							SystemReserved: 0 * gb,
+							TotalMemSize:   5 * gb,
+						},
+					},
+				},
+				1: &state.NodeState{
+					Nodes: []int{0,1},
+					NumberOfAssignments: 4,
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           5 * gb,
+							Reserved:       4 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    5 * gb,
+							Free:           5 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   5 * gb,
+						},
+					},
+				},
+			},
+			expectedMachineState:               state.NodeMap{
+				0: &state.NodeState{
+					Nodes: []int{0,1},
+					NumberOfAssignments: 2,
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    5 * gb,
+							Free:           4 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   5 * gb,
+						},
+					},
+				},
+				1: &state.NodeState{
+					Nodes: []int{0,1},
+					NumberOfAssignments: 2,
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           8 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    5 * gb,
+							Free:           5 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   5* gb,
+						},
+					},
+				},
+			},
+			expectedError:                      nil,
+		},
+		{
+			description:    "Should fail if policy returns an error",
+			removeContainerID: "fakeID1",
+			policyName: "mock",
+			machineInfo: 	machineInfo,
+			reserved: reserved,
 			assignments:                   state.ContainerMemoryAssignments{
 				"fakePod1": map[string][]state.Block{
 					"fakeContainer1": {
@@ -1616,41 +1922,11 @@ func TestRemoveContainer(t *testing.T) {
 			expectedError:                      fmt.Errorf("Fake reg error"),
 		},
 		{
-			description:                   "Should do nothing if container not in containerMap",
+			description:                   "Should do nothing if container is not in containerMap",
 			removeContainerID:                "fakeID3",
 			policyName:                        "single-numa",
-			machineInfo: 	cadvisorapi.MachineInfo{
-					Topology: []cadvisorapi.Node{
-						{
-							Id:     0,
-							Memory: 10 * gb,
-							HugePages: []cadvisorapi.HugePagesInfo{
-								{
-									PageSize: pageSize1Gb,
-									NumPages: 5,
-								},
-							},
-						},
-						{
-							Id:     1,
-							Memory: 10 * gb,
-							HugePages: []cadvisorapi.HugePagesInfo{
-								{
-									PageSize: pageSize1Gb,
-									NumPages: 5,
-								},
-							},
-						},
-					},
-				},
-			reserved: systemReservedMemory{
-				0: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-				1: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-			},
+			machineInfo: 	machineInfo,
+			reserved: reserved,
 			assignments:                   state.ContainerMemoryAssignments{
 				"fakePod1": map[string][]state.Block{
 					"fakeContainer1": {
@@ -1817,16 +2093,18 @@ func TestRemoveContainer(t *testing.T) {
 
 			err := mgr.RemoveContainer(testCase.removeContainerID)
 			if !reflect.DeepEqual(err, testCase.expectedError) {
-				t.Errorf("Memory Manager RemoveContainer() error (%v), expected error: %v but got: %v",
+				t.Errorf("Memory Manager RemoveContainer() error (%v), expected error: %v, but got: %v",
 					testCase.description, testCase.expectedError, err)
 			}
 
 			if !areContainerMemoryAssignmentsEqual(mgr.state.GetMemoryAssignments(), testCase.expectedAssignments){
-				t.Fatalf("Memory Manager RemoveContainer() inconsistent assignment, expected: %+v but got: %+v, start %+v",
+				t.Fatalf("Memory Manager RemoveContainer() inconsistent assignment, expected: %+v, but got: %+v, start %+v",
 					testCase.expectedAssignments, mgr.state.GetMemoryAssignments(), testCase.expectedAssignments)
 			}
 
 			if !areMachineStatesEqual(mgr.state.GetMachineState(), testCase.expectedMachineState){
+				t.Errorf("[test] %+v", mgr.state.GetMemoryAssignments())
+				t.Errorf("[test] %+v, %+v", mgr.state.GetMachineState()[0].MemoryMap["memory"], mgr.state.GetMachineState()[1].MemoryMap["memory"])
 				t.Fatalf("The actual machine state: %v is different from the expected one: %v", mgr.state.GetMachineState(), testCase.expectedMachineState)
 			}
 		})
@@ -1834,34 +2112,43 @@ func TestRemoveContainer(t *testing.T) {
 }
 
 func TestNewManager(t *testing.T) {
+	machineInfo := cadvisorapi.MachineInfo{
+		Topology: []cadvisorapi.Node{
+			{
+				Id:     0,
+				Memory: 10 * gb,
+				HugePages: []cadvisorapi.HugePagesInfo{
+					{
+						PageSize: pageSize1Gb,
+						NumPages: 5,
+					},
+				},
+			},
+			{
+				Id:     1,
+				Memory: 10 * gb,
+				HugePages: []cadvisorapi.HugePagesInfo{
+					{
+						PageSize: pageSize1Gb,
+						NumPages: 5,
+					},
+				},
+			},
+		},
+	}
+	expectedReserved := systemReservedMemory{
+		0: map[v1.ResourceName]uint64{
+			v1.ResourceMemory: 1 * gb,
+		},
+		1: map[v1.ResourceName]uint64{
+			v1.ResourceMemory: 1 * gb,
+		},
+	}
 	testCases := []testMemoryManager{
 		{
 			description:                "Successfuly created Memory Manager instance",
 			policyName:                 "single-numa",
-			machineInfo:                cadvisorapi.MachineInfo{
-				Topology: []cadvisorapi.Node{
-					{
-						Id:     0,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-					{
-						Id:     1,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-				},
-			},
+			machineInfo:                machineInfo,
 			nodeAllocatableReservation: v1.ResourceList{v1.ResourceMemory: *resource.NewQuantity(2*gb, resource.BinarySI)},
 			preReservedMemory: map[int]map[v1.ResourceName]resource.Quantity{
 				0: nodeResources{v1.ResourceMemory: *resource.NewQuantity(gb, resource.BinarySI)},
@@ -1869,42 +2156,12 @@ func TestNewManager(t *testing.T) {
 			},
 			affinity: topologymanager.NewFakeManager(),
 			expectedError:   nil,
-			expectedReserved: systemReservedMemory{
-				0: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-				1: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-			},
+			expectedReserved: expectedReserved,
 		},
 		{
 			description:                "Should return an error where preReservedMemory is not correct",
 			policyName:                 "single-numa",
-			machineInfo:                cadvisorapi.MachineInfo{
-				Topology: []cadvisorapi.Node{
-					{
-						Id:     0,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-					{
-						Id:     1,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-				},
-			},
+			machineInfo:                machineInfo,
 			nodeAllocatableReservation: v1.ResourceList{v1.ResourceMemory: *resource.NewQuantity(2*gb, resource.BinarySI)},
 			preReservedMemory: map[int]map[v1.ResourceName]resource.Quantity{
 				0: nodeResources{v1.ResourceMemory: *resource.NewQuantity(gb, resource.BinarySI)},
@@ -1912,134 +2169,37 @@ func TestNewManager(t *testing.T) {
 			},
 			affinity: topologymanager.NewFakeManager(),
 			expectedError:   fmt.Errorf("the total amount of memory of type \"memory\" is not equal to the value determined by Node Allocatable feature"),
-			expectedReserved: systemReservedMemory{
-				0: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-				1: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-			},
+			expectedReserved: expectedReserved,
 		},
 		{
 			description:                "Should return an error when memory reserved for system is empty (preReservedMemory)",
 			policyName:                 "single-numa",
-			machineInfo:                cadvisorapi.MachineInfo{
-				Topology: []cadvisorapi.Node{
-					{
-						Id:     0,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-					{
-						Id:     1,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-				},
-			},
+			machineInfo:                machineInfo,
 			nodeAllocatableReservation: v1.ResourceList{},
 			preReservedMemory:          map[int]map[v1.ResourceName]resource.Quantity{},
 			affinity:                   topologymanager.NewFakeManager(),
 			expectedError:                     fmt.Errorf("[memorymanager] you should specify the memory reserved for the system"),
-			expectedReserved: systemReservedMemory{
-				0: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-				1: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-			},
+			expectedReserved: expectedReserved,
 		},
 		{
 			description:                "Should return an error where policy name is not correct",
 			policyName:                 "fake",
-			machineInfo:                cadvisorapi.MachineInfo{
-				Topology: []cadvisorapi.Node{
-					{
-						Id:     0,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-					{
-						Id:     1,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-				},
-			},
+			machineInfo:                machineInfo,
 			nodeAllocatableReservation: v1.ResourceList{},
 			preReservedMemory:          map[int]map[v1.ResourceName]resource.Quantity{},
 			affinity:                   topologymanager.NewFakeManager(),
 			expectedError:                     fmt.Errorf("unknown policy: \"fake\""),
-			expectedReserved: systemReservedMemory{
-				0: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-				1: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-			},
+			expectedReserved: expectedReserved,
 		},
 		{
 			description:                "Should return manager with none policy",
 			policyName:                 "none",
-			machineInfo:                cadvisorapi.MachineInfo{
-				Topology: []cadvisorapi.Node{
-					{
-						Id:     0,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-					{
-						Id:     1,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-				},
-			},
+			machineInfo:                machineInfo,
 			nodeAllocatableReservation: v1.ResourceList{},
 			preReservedMemory:          map[int]map[v1.ResourceName]resource.Quantity{},
 			affinity:                   topologymanager.NewFakeManager(),
 			expectedError:                     nil,
-			expectedReserved: systemReservedMemory{
-				0: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-				1: map[v1.ResourceName]uint64{
-					v1.ResourceMemory: 1 * gb,
-				},
-			},
+			expectedReserved: expectedReserved,
 		},
 	}
 	for _, testCase := range testCases {
@@ -2053,7 +2213,7 @@ func TestNewManager(t *testing.T) {
 			mgr, err := NewManager(testCase.policyName, &testCase.machineInfo, testCase.nodeAllocatableReservation, testCase.preReservedMemory, stateFileDirectory, testCase.affinity)
 
 			if !reflect.DeepEqual(err, testCase.expectedError) {
-				t.Errorf("Memory Manager NewManager() error, expected error '%v' but got: '%v'",
+				t.Errorf("Memory Manager NewManager() error, expected error '%v', but got: '%v'",
 					testCase.expectedError, err)
 			}
 
@@ -2061,12 +2221,12 @@ func TestNewManager(t *testing.T) {
 				if mgr != nil {
 					rawMgr := mgr.(*manager)
 					if !reflect.DeepEqual(rawMgr.policy.Name(), testCase.policyName) {
-						t.Errorf("Memory Manager NewManager() error, expected policyName %v but got: %v",
+						t.Errorf("Memory Manager NewManager() error, expected policyName %v, but got: %v",
 							testCase.policyName, rawMgr.policy.Name())
 					}
 					if testCase.policyName == "single-numa" {
 						if !reflect.DeepEqual(rawMgr.policy.(*singleNUMAPolicy).systemReserved, testCase.expectedReserved) {
-							t.Errorf("Memory Manager NewManager() error, expected systemReserved %+v but got: %+v",
+							t.Errorf("Memory Manager NewManager() error, expected systemReserved %+v, but got: %+v",
 								testCase.expectedReserved, rawMgr.policy.(*singleNUMAPolicy).systemReserved)
 						}
 					}

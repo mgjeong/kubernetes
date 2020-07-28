@@ -220,9 +220,9 @@ func (p *singleNUMAPolicy) RemoveContainer(s state.State, podUID string, contain
 			// the reserved memory smaller than the amount of the memory that should be released
 			// release as much as possible and move to the next node
 			if nodeResourceMemoryState.Reserved < releasedSize {
+				releasedSize -= nodeResourceMemoryState.Reserved
 				nodeResourceMemoryState.Free += nodeResourceMemoryState.Reserved
 				nodeResourceMemoryState.Reserved = 0
-				releasedSize -= nodeResourceMemoryState.Reserved
 				continue
 			}
 

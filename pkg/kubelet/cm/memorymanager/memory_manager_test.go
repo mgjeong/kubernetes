@@ -42,28 +42,28 @@ const (
 )
 
 type testMemoryManager struct {
-	description string
-	policy Policy
-	machineInfo cadvisorapi.MachineInfo
-	assignments state.ContainerMemoryAssignments
-	expectedAssignments state.ContainerMemoryAssignments
-	machineState state.NodeMap
-	expectedMachineState state.NodeMap
-	expectedError error
-	expectedAllocateError error
-	expectedAddContainerError error
-	updateError error
-	removeContainerID string
+	description                string
+	policy                     Policy
+	machineInfo                cadvisorapi.MachineInfo
+	assignments                state.ContainerMemoryAssignments
+	expectedAssignments        state.ContainerMemoryAssignments
+	machineState               state.NodeMap
+	expectedMachineState       state.NodeMap
+	expectedError              error
+	expectedAllocateError      error
+	expectedAddContainerError  error
+	updateError                error
+	removeContainerID          string
 	nodeAllocatableReservation v1.ResourceList
-	policyName string
-	affinity topologymanager.Store
-	preReservedMemory map[int]map[v1.ResourceName]resource.Quantity
-	expectedHints map[string][]topologymanager.TopologyHint
-	expectedReserved systemReservedMemory
-	reserved systemReservedMemory
-	podAllocate *v1.Pod
-	firstPod *v1.Pod
-	activePods []*v1.Pod
+	policyName                 string
+	affinity                   topologymanager.Store
+	preReservedMemory          map[int]map[v1.ResourceName]resource.Quantity
+	expectedHints              map[string][]topologymanager.TopologyHint
+	expectedReserved           systemReservedMemory
+	reserved                   systemReservedMemory
+	podAllocate                *v1.Pod
+	firstPod                   *v1.Pod
+	activePods                 []*v1.Pod
 }
 
 func returnPolicyByName(testCase testMemoryManager) Policy {
@@ -73,7 +73,7 @@ func returnPolicyByName(testCase testMemoryManager) Policy {
 			err: fmt.Errorf("Fake reg error"),
 		}
 	case "single-numa":
-		policy, _ := NewPolicySingleNUMA(&testCase.machineInfo,testCase.reserved,topologymanager.NewFakeManager())
+		policy, _ := NewPolicySingleNUMA(&testCase.machineInfo, testCase.reserved, topologymanager.NewFakeManager())
 		return policy
 	case "none":
 		return NewPolicyNone()
@@ -334,7 +334,7 @@ func TestGetSystemReservedMemory(t *testing.T) {
 				1: {},
 			},
 			expectedError: nil,
-			machineInfo: machineInfo,
+			machineInfo:   machineInfo,
 		},
 		{
 			description:                "Should return error when Allocatable reservation is not equal pre reserved memory",
@@ -343,8 +343,8 @@ func TestGetSystemReservedMemory(t *testing.T) {
 				0: nodeResources{v1.ResourceMemory: *resource.NewQuantity(gb, resource.BinarySI)},
 			},
 			expectedReserved: nil,
-			expectedError:      fmt.Errorf("the total amount of memory of type \"memory\" is not equal to the value determined by Node Allocatable feature"),
-			machineInfo: machineInfo,
+			expectedError:    fmt.Errorf("the total amount of memory of type \"memory\" is not equal to the value determined by Node Allocatable feature"),
+			machineInfo:      machineInfo,
 		},
 		{
 			description:                "Reserved should be equal to preReservedMemory",
@@ -361,8 +361,8 @@ func TestGetSystemReservedMemory(t *testing.T) {
 					v1.ResourceMemory: 1 * gb,
 				},
 			},
-			expectedError:      nil,
-			machineInfo: machineInfo,
+			expectedError: nil,
+			machineInfo:   machineInfo,
 		},
 	}
 
@@ -411,8 +411,8 @@ func TestRemoveStaleState(t *testing.T) {
 	testCases := []testMemoryManager{
 		{
 			description: "Should fail - policy returns an error",
-			policyName: "mock",
-			machineInfo:  machineInfo,
+			policyName:  "mock",
+			machineInfo: machineInfo,
 			reserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 1 * gb,
@@ -421,7 +421,7 @@ func TestRemoveStaleState(t *testing.T) {
 					v1.ResourceMemory: 1 * gb,
 				},
 			},
-			assignments:                   state.ContainerMemoryAssignments{
+			assignments: state.ContainerMemoryAssignments{
 				"fakePod1": map[string][]state.Block{
 					"fakeContainer1": {
 						{
@@ -477,9 +477,9 @@ func TestRemoveStaleState(t *testing.T) {
 					},
 				},
 			},
-			machineState:                  state.NodeMap{
+			machineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 4,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -499,7 +499,7 @@ func TestRemoveStaleState(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -519,9 +519,9 @@ func TestRemoveStaleState(t *testing.T) {
 					},
 				},
 			},
-			expectedMachineState:               state.NodeMap{
+			expectedMachineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 4,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -541,7 +541,7 @@ func TestRemoveStaleState(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -563,8 +563,8 @@ func TestRemoveStaleState(t *testing.T) {
 			},
 		},
 		{
-			description:                   "Stale state succesfuly removed, without multi NUMA assignments",
-			policyName:                        "single-numa",
+			description: "Stale state succesfuly removed, without multi NUMA assignments",
+			policyName:  "single-numa",
 			machineInfo: machineInfo,
 			reserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
@@ -574,7 +574,7 @@ func TestRemoveStaleState(t *testing.T) {
 					v1.ResourceMemory: 1 * gb,
 				},
 			},
-			assignments:                   state.ContainerMemoryAssignments{
+			assignments: state.ContainerMemoryAssignments{
 				"fakePod1": map[string][]state.Block{
 					"fakeContainer1": {
 						{
@@ -603,9 +603,9 @@ func TestRemoveStaleState(t *testing.T) {
 				},
 			},
 			expectedAssignments: state.ContainerMemoryAssignments{},
-			machineState:                  state.NodeMap{
+			machineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 4,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -625,7 +625,7 @@ func TestRemoveStaleState(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -645,9 +645,9 @@ func TestRemoveStaleState(t *testing.T) {
 					},
 				},
 			},
-			expectedMachineState:               state.NodeMap{
+			expectedMachineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -667,7 +667,7 @@ func TestRemoveStaleState(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -689,8 +689,8 @@ func TestRemoveStaleState(t *testing.T) {
 			},
 		},
 		{
-			description:                   "Stale state succesfuly removed, with multi NUMA assignments",
-			policyName:                        "single-numa",
+			description: "Stale state succesfuly removed, with multi NUMA assignments",
+			policyName:  "single-numa",
 			machineInfo: machineInfo,
 			reserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
@@ -700,28 +700,28 @@ func TestRemoveStaleState(t *testing.T) {
 					v1.ResourceMemory: 1 * gb,
 				},
 			},
-			assignments:                   state.ContainerMemoryAssignments{
+			assignments: state.ContainerMemoryAssignments{
 				"fakePod1": map[string][]state.Block{
 					"fakeContainer1": {
 						{
-							NUMAAffinity: []int{0,1},
+							NUMAAffinity: []int{0, 1},
 							Type:         v1.ResourceMemory,
 							Size:         12 * gb,
 						},
 						{
-							NUMAAffinity: []int{0,1},
+							NUMAAffinity: []int{0, 1},
 							Type:         hugepages1Gi,
 							Size:         1 * gb,
 						},
 					},
 					"fakeContainer2": {
 						{
-							NUMAAffinity: []int{0,1},
+							NUMAAffinity: []int{0, 1},
 							Type:         v1.ResourceMemory,
 							Size:         1 * gb,
 						},
 						{
-							NUMAAffinity: []int{0,1},
+							NUMAAffinity: []int{0, 1},
 							Type:         hugepages1Gi,
 							Size:         1 * gb,
 						},
@@ -729,9 +729,9 @@ func TestRemoveStaleState(t *testing.T) {
 				},
 			},
 			expectedAssignments: state.ContainerMemoryAssignments{},
-			machineState:                  state.NodeMap{
+			machineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0,1},
+					Nodes:               []int{0, 1},
 					NumberOfAssignments: 4,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -751,7 +751,7 @@ func TestRemoveStaleState(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{0,1},
+					Nodes:               []int{0, 1},
 					NumberOfAssignments: 4,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -771,9 +771,9 @@ func TestRemoveStaleState(t *testing.T) {
 					},
 				},
 			},
-			expectedMachineState:               state.NodeMap{
+			expectedMachineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -793,7 +793,7 @@ func TestRemoveStaleState(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -847,29 +847,29 @@ func TestRemoveStaleState(t *testing.T) {
 
 func TestAddContainer(t *testing.T) {
 	machineInfo := cadvisorapi.MachineInfo{
-			Topology: []cadvisorapi.Node{
-				{
-					Id:     0,
-					Memory: 10 * gb,
-					HugePages: []cadvisorapi.HugePagesInfo{
-						{
-							PageSize: pageSize1Gb,
-							NumPages: 5,
-						},
-					},
-				},
-				{
-					Id:     1,
-					Memory: 10 * gb,
-					HugePages: []cadvisorapi.HugePagesInfo{
-						{
-							PageSize: pageSize1Gb,
-							NumPages: 5,
-						},
+		Topology: []cadvisorapi.Node{
+			{
+				Id:     0,
+				Memory: 10 * gb,
+				HugePages: []cadvisorapi.HugePagesInfo{
+					{
+						PageSize: pageSize1Gb,
+						NumPages: 5,
 					},
 				},
 			},
-		}
+			{
+				Id:     1,
+				Memory: 10 * gb,
+				HugePages: []cadvisorapi.HugePagesInfo{
+					{
+						PageSize: pageSize1Gb,
+						NumPages: 5,
+					},
+				},
+			},
+		},
+	}
 	reserved := systemReservedMemory{
 		0: map[v1.ResourceName]uint64{
 			v1.ResourceMemory: 1 * gb,
@@ -879,15 +879,15 @@ func TestAddContainer(t *testing.T) {
 		},
 	}
 	pod := getPod("fakePod1", "fakeContainer1", requirementsGuaranteed)
-	testCases := []testMemoryManager {
+	testCases := []testMemoryManager{
 		{
-			description:        "Correct allocation and adding container on NUMA 0",
-			policyName:             "single-numa",
-			machineInfo: 	machineInfo,
-			reserved: reserved,
-			machineState:       state.NodeMap{
+			description: "Correct allocation and adding container on NUMA 0",
+			policyName:  "single-numa",
+			machineInfo: machineInfo,
+			reserved:    reserved,
+			machineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -907,7 +907,7 @@ func TestAddContainer(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -927,9 +927,9 @@ func TestAddContainer(t *testing.T) {
 					},
 				},
 			},
-			expectedMachineState:    state.NodeMap{
+			expectedMachineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 2,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -949,7 +949,7 @@ func TestAddContainer(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -964,41 +964,41 @@ func TestAddContainer(t *testing.T) {
 							Free:           5 * gb,
 							Reserved:       0,
 							SystemReserved: 0,
-							TotalMemSize:   5* gb,
+							TotalMemSize:   5 * gb,
 						},
 					},
 				},
 			},
 			expectedAllocateError:     nil,
 			expectedAddContainerError: nil,
-			updateError:          nil,
-			podAllocate: pod,
-			assignments: state.ContainerMemoryAssignments{},
-			activePods: nil,
+			updateError:               nil,
+			podAllocate:               pod,
+			assignments:               state.ContainerMemoryAssignments{},
+			activePods:                nil,
 		},
 		{
-			description:        "Shouldn't return any error when policy is set as None",
-			updateError:          nil,
-			policyName:             "none",
-			machineInfo: 	machineInfo,
-			reserved: reserved,
-			machineState:       state.NodeMap{},
-			expectedMachineState:    state.NodeMap{},
+			description:               "Shouldn't return any error when policy is set as None",
+			updateError:               nil,
+			policyName:                "none",
+			machineInfo:               machineInfo,
+			reserved:                  reserved,
+			machineState:              state.NodeMap{},
+			expectedMachineState:      state.NodeMap{},
 			expectedAllocateError:     nil,
 			expectedAddContainerError: nil,
-			podAllocate: pod,
-			assignments: state.ContainerMemoryAssignments{},
-			activePods: nil,
+			podAllocate:               pod,
+			assignments:               state.ContainerMemoryAssignments{},
+			activePods:                nil,
 		},
 		{
 			description: "Allocation should fail if policy returns an error",
-			updateError:   nil,
-			policyName: "mock",
-			machineInfo: 	machineInfo,
-			reserved: reserved,
-			machineState:       state.NodeMap{
+			updateError: nil,
+			policyName:  "mock",
+			machineInfo: machineInfo,
+			reserved:    reserved,
+			machineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1018,7 +1018,7 @@ func TestAddContainer(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1038,9 +1038,9 @@ func TestAddContainer(t *testing.T) {
 					},
 				},
 			},
-			expectedMachineState:    state.NodeMap{
+			expectedMachineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1060,7 +1060,7 @@ func TestAddContainer(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1082,19 +1082,19 @@ func TestAddContainer(t *testing.T) {
 			},
 			expectedAllocateError:     fmt.Errorf("Fake reg error"),
 			expectedAddContainerError: nil,
-			podAllocate: pod,
-			assignments: state.ContainerMemoryAssignments{},
-			activePods: nil,
+			podAllocate:               pod,
+			assignments:               state.ContainerMemoryAssignments{},
+			activePods:                nil,
 		},
 		{
-			description:        "Adding container should fail (CRI error) but without an error",
-			updateError:          fmt.Errorf("Fake reg error"),
-			policyName:             "single-numa",
-			machineInfo: 	machineInfo,
-			reserved: reserved,
-			machineState:       state.NodeMap{
+			description: "Adding container should fail (CRI error) but without an error",
+			updateError: fmt.Errorf("Fake reg error"),
+			policyName:  "single-numa",
+			machineInfo: machineInfo,
+			reserved:    reserved,
+			machineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1114,7 +1114,7 @@ func TestAddContainer(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1134,9 +1134,9 @@ func TestAddContainer(t *testing.T) {
 					},
 				},
 			},
-			expectedMachineState:    state.NodeMap{
+			expectedMachineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1156,7 +1156,7 @@ func TestAddContainer(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1178,18 +1178,18 @@ func TestAddContainer(t *testing.T) {
 			},
 			expectedAllocateError:     nil,
 			expectedAddContainerError: nil,
-			podAllocate: pod,
-			assignments: state.ContainerMemoryAssignments{},
-			activePods: nil,
+			podAllocate:               pod,
+			assignments:               state.ContainerMemoryAssignments{},
+			activePods:                nil,
 		},
 		{
-			description:        "Correct allocation of container requiring amount of memory higher than capacity of one NUMA node",
-			policyName:             "single-numa",
-			machineInfo: 	machineInfo,
-			reserved: reserved,
-			machineState:       state.NodeMap{
+			description: "Correct allocation of container requiring amount of memory higher than capacity of one NUMA node",
+			policyName:  "single-numa",
+			machineInfo: machineInfo,
+			reserved:    reserved,
+			machineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1209,7 +1209,7 @@ func TestAddContainer(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1229,9 +1229,9 @@ func TestAddContainer(t *testing.T) {
 					},
 				},
 			},
-			expectedMachineState:    state.NodeMap{
+			expectedMachineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0,1},
+					Nodes:               []int{0, 1},
 					NumberOfAssignments: 2,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1251,7 +1251,7 @@ func TestAddContainer(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{0,1},
+					Nodes:               []int{0, 1},
 					NumberOfAssignments: 2,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1273,7 +1273,7 @@ func TestAddContainer(t *testing.T) {
 			},
 			expectedAllocateError:     nil,
 			expectedAddContainerError: nil,
-			podAllocate: getPod("fakePod1","fakeContainer1", &v1.ResourceRequirements{
+			podAllocate: getPod("fakePod1", "fakeContainer1", &v1.ResourceRequirements{
 				Limits: v1.ResourceList{
 					v1.ResourceCPU:    resource.MustParse("1000Mi"),
 					v1.ResourceMemory: resource.MustParse("12Gi"),
@@ -1284,77 +1284,19 @@ func TestAddContainer(t *testing.T) {
 					v1.ResourceMemory: resource.MustParse("12Gi"),
 					hugepages1Gi:      resource.MustParse("4Gi"),
 				},
-		  }),
+			}),
 			assignments: state.ContainerMemoryAssignments{},
-			activePods: nil,
+			activePods:  nil,
 		},
 		{
-			description:        "Should fail if try to allocate container requiring amount of memory higher than capacity of one NUMA node but a small pod is already allocated",
-			policyName:             "single-numa",
-			machineInfo: 	machineInfo,
-			firstPod: pod,
-			reserved: reserved,
-			machineState:       	state.NodeMap{
-					0: &state.NodeState{
-						Nodes: []int{0},
-						NumberOfAssignments: 2,
-						MemoryMap: map[v1.ResourceName]*state.MemoryTable{
-							v1.ResourceMemory: {
-								Allocatable:    9 * gb,
-								Free:           8 * gb,
-								Reserved:       1 * gb,
-								SystemReserved: 1 * gb,
-								TotalMemSize:   10 * gb,
-							},
-							hugepages1Gi: {
-								Allocatable:    5 * gb,
-								Free:           4 * gb,
-								Reserved:       1 * gb,
-								SystemReserved: 0,
-								TotalMemSize:   5 * gb,
-							},
-						},
-					},
-					1: &state.NodeState{
-						Nodes: []int{1},
-						NumberOfAssignments: 0,
-						MemoryMap: map[v1.ResourceName]*state.MemoryTable{
-							v1.ResourceMemory: {
-								Allocatable:    9 * gb,
-								Free:           9 * gb,
-								Reserved:       0 * gb,
-								SystemReserved: 1 * gb,
-								TotalMemSize:   10 * gb,
-							},
-							hugepages1Gi: {
-								Allocatable:    5 * gb,
-								Free:           5 * gb,
-								Reserved:       0,
-								SystemReserved: 0,
-								TotalMemSize:   5 * gb,
-							},
-						},
-					},
-				},
-			assignments: state.ContainerMemoryAssignments{
-				"fakePod1": map[string][]state.Block{
-					"fakeContainer1": {
-						{
-							NUMAAffinity: []int{0},
-							Type:         v1.ResourceMemory,
-							Size:         1 * gb,
-						},
-						{
-							NUMAAffinity: []int{0},
-							Type:         hugepages1Gi,
-							Size:         1 * gb,
-						},
-					},
-				},
-			},
-			expectedMachineState:    state.NodeMap{
+			description: "Should fail if try to allocate container requiring amount of memory higher than capacity of one NUMA node but a small pod is already allocated",
+			policyName:  "single-numa",
+			machineInfo: machineInfo,
+			firstPod:    pod,
+			reserved:    reserved,
+			machineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 2,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1374,7 +1316,65 @@ func TestAddContainer(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    5 * gb,
+							Free:           5 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   5 * gb,
+						},
+					},
+				},
+			},
+			assignments: state.ContainerMemoryAssignments{
+				"fakePod1": map[string][]state.Block{
+					"fakeContainer1": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         1 * gb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         1 * gb,
+						},
+					},
+				},
+			},
+			expectedMachineState: state.NodeMap{
+				0: &state.NodeState{
+					Nodes:               []int{0},
+					NumberOfAssignments: 2,
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           8 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    5 * gb,
+							Free:           4 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   5 * gb,
+						},
+					},
+				},
+				1: &state.NodeState{
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1396,7 +1396,7 @@ func TestAddContainer(t *testing.T) {
 			},
 			expectedAllocateError:     fmt.Errorf("[memorymanager] failed to get the default NUMA affinity, no NUMA nodes with enough memory is available"),
 			expectedAddContainerError: nil,
-			podAllocate: getPod("fakePod2","fakeContainer2", &v1.ResourceRequirements{
+			podAllocate: getPod("fakePod2", "fakeContainer2", &v1.ResourceRequirements{
 				Limits: v1.ResourceList{
 					v1.ResourceCPU:    resource.MustParse("1000Mi"),
 					v1.ResourceMemory: resource.MustParse("12Gi"),
@@ -1421,7 +1421,7 @@ func TestAddContainer(t *testing.T) {
 							},
 						},
 					},
-			},
+				},
 			},
 		},
 	}
@@ -1441,7 +1441,7 @@ func TestAddContainer(t *testing.T) {
 			mgr.sourcesReady = &sourcesReadyStub{}
 			mgr.state.SetMachineState(testCase.machineState)
 			mgr.state.SetMemoryAssignments(testCase.assignments)
-			if testCase.firstPod!=nil {
+			if testCase.firstPod != nil {
 				mgr.containerMap.Add(testCase.firstPod.Name, testCase.firstPod.Spec.Containers[0].Name, "fakeID0")
 			}
 			pod := testCase.podAllocate
@@ -1458,10 +1458,9 @@ func TestAddContainer(t *testing.T) {
 			}
 
 			if !areMachineStatesEqual(mgr.state.GetMachineState(), testCase.expectedMachineState) {
-				t.Errorf("[test] %+v",mgr.state.GetMemoryAssignments())
+				t.Errorf("[test] %+v", mgr.state.GetMemoryAssignments())
 				t.Fatalf("The actual machine state: %v is different from the expected one: %v", mgr.state.GetMachineState(), testCase.expectedMachineState)
 			}
-
 
 		})
 	}
@@ -1469,29 +1468,29 @@ func TestAddContainer(t *testing.T) {
 
 func TestRemoveContainer(t *testing.T) {
 	machineInfo := cadvisorapi.MachineInfo{
-			Topology: []cadvisorapi.Node{
-				{
-					Id:     0,
-					Memory: 10 * gb,
-					HugePages: []cadvisorapi.HugePagesInfo{
-						{
-							PageSize: pageSize1Gb,
-							NumPages: 5,
-						},
-					},
-				},
-				{
-					Id:     1,
-					Memory: 10 * gb,
-					HugePages: []cadvisorapi.HugePagesInfo{
-						{
-							PageSize: pageSize1Gb,
-							NumPages: 5,
-						},
+		Topology: []cadvisorapi.Node{
+			{
+				Id:     0,
+				Memory: 10 * gb,
+				HugePages: []cadvisorapi.HugePagesInfo{
+					{
+						PageSize: pageSize1Gb,
+						NumPages: 5,
 					},
 				},
 			},
-		}
+			{
+				Id:     1,
+				Memory: 10 * gb,
+				HugePages: []cadvisorapi.HugePagesInfo{
+					{
+						PageSize: pageSize1Gb,
+						NumPages: 5,
+					},
+				},
+			},
+		},
+	}
 	reserved := systemReservedMemory{
 		0: map[v1.ResourceName]uint64{
 			v1.ResourceMemory: 1 * gb,
@@ -1502,12 +1501,12 @@ func TestRemoveContainer(t *testing.T) {
 	}
 	testCases := []testMemoryManager{
 		{
-			description:                   "Correct removing of a container",
-			removeContainerID:             "fakeID2",
-			policyName:                        "single-numa",
-			machineInfo: 	machineInfo,
-			reserved: reserved,
-			assignments:                   state.ContainerMemoryAssignments{
+			description:       "Correct removing of a container",
+			removeContainerID: "fakeID2",
+			policyName:        "single-numa",
+			machineInfo:       machineInfo,
+			reserved:          reserved,
+			assignments: state.ContainerMemoryAssignments{
 				"fakePod1": map[string][]state.Block{
 					"fakeContainer1": {
 						{
@@ -1551,9 +1550,9 @@ func TestRemoveContainer(t *testing.T) {
 					},
 				},
 			},
-			machineState:                  state.NodeMap{
+			machineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 4,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1573,7 +1572,7 @@ func TestRemoveContainer(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1593,9 +1592,9 @@ func TestRemoveContainer(t *testing.T) {
 					},
 				},
 			},
-			expectedMachineState:               state.NodeMap{
+			expectedMachineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 2,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1615,7 +1614,7 @@ func TestRemoveContainer(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1630,41 +1629,41 @@ func TestRemoveContainer(t *testing.T) {
 							Free:           5 * gb,
 							Reserved:       0,
 							SystemReserved: 0,
-							TotalMemSize:   5* gb,
+							TotalMemSize:   5 * gb,
 						},
 					},
 				},
 			},
-			expectedError:                      nil,
+			expectedError: nil,
 		},
 		{
-			description:                   "Correct removing of a multi NUMA container",
-			removeContainerID:             "fakeID2",
-			policyName:                        "single-numa",
-			machineInfo: 	machineInfo,
-			reserved: reserved,
-			assignments:                   state.ContainerMemoryAssignments{
+			description:       "Correct removing of a multi NUMA container",
+			removeContainerID: "fakeID2",
+			policyName:        "single-numa",
+			machineInfo:       machineInfo,
+			reserved:          reserved,
+			assignments: state.ContainerMemoryAssignments{
 				"fakePod1": map[string][]state.Block{
 					"fakeContainer1": {
 						{
-							NUMAAffinity: []int{0,1},
+							NUMAAffinity: []int{0, 1},
 							Type:         v1.ResourceMemory,
 							Size:         1 * gb,
 						},
 						{
-							NUMAAffinity: []int{0,1},
+							NUMAAffinity: []int{0, 1},
 							Type:         hugepages1Gi,
 							Size:         1 * gb,
 						},
 					},
 					"fakeContainer2": {
 						{
-							NUMAAffinity: []int{0,1},
+							NUMAAffinity: []int{0, 1},
 							Type:         v1.ResourceMemory,
 							Size:         12 * gb,
 						},
 						{
-							NUMAAffinity: []int{0,1},
+							NUMAAffinity: []int{0, 1},
 							Type:         hugepages1Gi,
 							Size:         1 * gb,
 						},
@@ -1675,21 +1674,21 @@ func TestRemoveContainer(t *testing.T) {
 				"fakePod1": map[string][]state.Block{
 					"fakeContainer1": {
 						{
-							NUMAAffinity: []int{0,1},
+							NUMAAffinity: []int{0, 1},
 							Type:         v1.ResourceMemory,
 							Size:         1 * gb,
 						},
 						{
-							NUMAAffinity: []int{0,1},
+							NUMAAffinity: []int{0, 1},
 							Type:         hugepages1Gi,
 							Size:         1 * gb,
 						},
 					},
 				},
 			},
-			machineState:                  state.NodeMap{
+			machineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0,1},
+					Nodes:               []int{0, 1},
 					NumberOfAssignments: 4,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1709,7 +1708,7 @@ func TestRemoveContainer(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{0,1},
+					Nodes:               []int{0, 1},
 					NumberOfAssignments: 4,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1729,9 +1728,9 @@ func TestRemoveContainer(t *testing.T) {
 					},
 				},
 			},
-			expectedMachineState:               state.NodeMap{
+			expectedMachineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0,1},
+					Nodes:               []int{0, 1},
 					NumberOfAssignments: 2,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1751,7 +1750,7 @@ func TestRemoveContainer(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{0,1},
+					Nodes:               []int{0, 1},
 					NumberOfAssignments: 2,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1766,20 +1765,20 @@ func TestRemoveContainer(t *testing.T) {
 							Free:           5 * gb,
 							Reserved:       0,
 							SystemReserved: 0,
-							TotalMemSize:   5* gb,
+							TotalMemSize:   5 * gb,
 						},
 					},
 				},
 			},
-			expectedError:                      nil,
+			expectedError: nil,
 		},
 		{
-			description:    "Should fail if policy returns an error",
+			description:       "Should fail if policy returns an error",
 			removeContainerID: "fakeID1",
-			policyName: "mock",
-			machineInfo: 	machineInfo,
-			reserved: reserved,
-			assignments:                   state.ContainerMemoryAssignments{
+			policyName:        "mock",
+			machineInfo:       machineInfo,
+			reserved:          reserved,
+			assignments: state.ContainerMemoryAssignments{
 				"fakePod1": map[string][]state.Block{
 					"fakeContainer1": {
 						{
@@ -1835,9 +1834,9 @@ func TestRemoveContainer(t *testing.T) {
 					},
 				},
 			},
-			machineState:                  state.NodeMap{
+			machineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 4,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1857,7 +1856,7 @@ func TestRemoveContainer(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1877,9 +1876,9 @@ func TestRemoveContainer(t *testing.T) {
 					},
 				},
 			},
-			expectedMachineState:               state.NodeMap{
+			expectedMachineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 4,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1899,7 +1898,7 @@ func TestRemoveContainer(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -1919,15 +1918,15 @@ func TestRemoveContainer(t *testing.T) {
 					},
 				},
 			},
-			expectedError:                      fmt.Errorf("Fake reg error"),
+			expectedError: fmt.Errorf("Fake reg error"),
 		},
 		{
-			description:                   "Should do nothing if container is not in containerMap",
-			removeContainerID:                "fakeID3",
-			policyName:                        "single-numa",
-			machineInfo: 	machineInfo,
-			reserved: reserved,
-			assignments:                   state.ContainerMemoryAssignments{
+			description:       "Should do nothing if container is not in containerMap",
+			removeContainerID: "fakeID3",
+			policyName:        "single-numa",
+			machineInfo:       machineInfo,
+			reserved:          reserved,
+			assignments: state.ContainerMemoryAssignments{
 				"fakePod1": map[string][]state.Block{
 					"fakeContainer1": {
 						{
@@ -1983,9 +1982,9 @@ func TestRemoveContainer(t *testing.T) {
 					},
 				},
 			},
-			machineState:                  state.NodeMap{
+			machineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 4,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -2005,7 +2004,7 @@ func TestRemoveContainer(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -2025,9 +2024,9 @@ func TestRemoveContainer(t *testing.T) {
 					},
 				},
 			},
-			expectedMachineState:               state.NodeMap{
+			expectedMachineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 4,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -2047,7 +2046,7 @@ func TestRemoveContainer(t *testing.T) {
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -2067,9 +2066,7 @@ func TestRemoveContainer(t *testing.T) {
 					},
 				},
 			},
-			expectedError:                      nil,
-
-
+			expectedError: nil,
 		},
 	}
 	for _, testCase := range testCases {
@@ -2097,12 +2094,12 @@ func TestRemoveContainer(t *testing.T) {
 					testCase.description, testCase.expectedError, err)
 			}
 
-			if !areContainerMemoryAssignmentsEqual(mgr.state.GetMemoryAssignments(), testCase.expectedAssignments){
+			if !areContainerMemoryAssignmentsEqual(mgr.state.GetMemoryAssignments(), testCase.expectedAssignments) {
 				t.Fatalf("Memory Manager RemoveContainer() inconsistent assignment, expected: %+v, but got: %+v, start %+v",
 					testCase.expectedAssignments, mgr.state.GetMemoryAssignments(), testCase.expectedAssignments)
 			}
 
-			if !areMachineStatesEqual(mgr.state.GetMachineState(), testCase.expectedMachineState){
+			if !areMachineStatesEqual(mgr.state.GetMachineState(), testCase.expectedMachineState) {
 				t.Errorf("[test] %+v", mgr.state.GetMemoryAssignments())
 				t.Errorf("[test] %+v, %+v", mgr.state.GetMachineState()[0].MemoryMap["memory"], mgr.state.GetMachineState()[1].MemoryMap["memory"])
 				t.Fatalf("The actual machine state: %v is different from the expected one: %v", mgr.state.GetMachineState(), testCase.expectedMachineState)
@@ -2146,7 +2143,7 @@ func TestNewManager(t *testing.T) {
 	}
 	testCases := []testMemoryManager{
 		{
-			description:                "Successfuly created Memory Manager instance",
+			description:                "Successful creation of Memory Manager instance",
 			policyName:                 "single-numa",
 			machineInfo:                machineInfo,
 			nodeAllocatableReservation: v1.ResourceList{v1.ResourceMemory: *resource.NewQuantity(2*gb, resource.BinarySI)},
@@ -2154,12 +2151,12 @@ func TestNewManager(t *testing.T) {
 				0: nodeResources{v1.ResourceMemory: *resource.NewQuantity(gb, resource.BinarySI)},
 				1: nodeResources{v1.ResourceMemory: *resource.NewQuantity(gb, resource.BinarySI)},
 			},
-			affinity: topologymanager.NewFakeManager(),
-			expectedError:   nil,
+			affinity:         topologymanager.NewFakeManager(),
+			expectedError:    nil,
 			expectedReserved: expectedReserved,
 		},
 		{
-			description:                "Should return an error where preReservedMemory is not correct",
+			description:                "Should return an error when preReservedMemory (configured with kubelet flag) does not comply with Node Allocatable feature values",
 			policyName:                 "single-numa",
 			machineInfo:                machineInfo,
 			nodeAllocatableReservation: v1.ResourceList{v1.ResourceMemory: *resource.NewQuantity(2*gb, resource.BinarySI)},
@@ -2167,8 +2164,8 @@ func TestNewManager(t *testing.T) {
 				0: nodeResources{v1.ResourceMemory: *resource.NewQuantity(gb, resource.BinarySI)},
 				1: nodeResources{v1.ResourceMemory: *resource.NewQuantity(2*gb, resource.BinarySI)},
 			},
-			affinity: topologymanager.NewFakeManager(),
-			expectedError:   fmt.Errorf("the total amount of memory of type \"memory\" is not equal to the value determined by Node Allocatable feature"),
+			affinity:         topologymanager.NewFakeManager(),
+			expectedError:    fmt.Errorf("the total amount of memory of type %q is not equal to the value determined by Node Allocatable feature", v1.ResourceMemory),
 			expectedReserved: expectedReserved,
 		},
 		{
@@ -2178,28 +2175,28 @@ func TestNewManager(t *testing.T) {
 			nodeAllocatableReservation: v1.ResourceList{},
 			preReservedMemory:          map[int]map[v1.ResourceName]resource.Quantity{},
 			affinity:                   topologymanager.NewFakeManager(),
-			expectedError:                     fmt.Errorf("[memorymanager] you should specify the memory reserved for the system"),
-			expectedReserved: expectedReserved,
+			expectedError:              fmt.Errorf("[memorymanager] you should specify the system reserved memory"),
+			expectedReserved:           expectedReserved,
 		},
 		{
-			description:                "Should return an error where policy name is not correct",
+			description:                "Should return an error when policy name is not correct",
 			policyName:                 "fake",
 			machineInfo:                machineInfo,
 			nodeAllocatableReservation: v1.ResourceList{},
 			preReservedMemory:          map[int]map[v1.ResourceName]resource.Quantity{},
 			affinity:                   topologymanager.NewFakeManager(),
-			expectedError:                     fmt.Errorf("unknown policy: \"fake\""),
-			expectedReserved: expectedReserved,
+			expectedError:              fmt.Errorf("unknown policy: \"fake\""),
+			expectedReserved:           expectedReserved,
 		},
 		{
-			description:                "Should return manager with none policy",
+			description:                "Should create manager with \"none\" policy",
 			policyName:                 "none",
 			machineInfo:                machineInfo,
 			nodeAllocatableReservation: v1.ResourceList{},
 			preReservedMemory:          map[int]map[v1.ResourceName]resource.Quantity{},
 			affinity:                   topologymanager.NewFakeManager(),
-			expectedError:                     nil,
-			expectedReserved: expectedReserved,
+			expectedError:              nil,
+			expectedReserved:           expectedReserved,
 		},
 	}
 	for _, testCase := range testCases {
@@ -2213,7 +2210,7 @@ func TestNewManager(t *testing.T) {
 			mgr, err := NewManager(testCase.policyName, &testCase.machineInfo, testCase.nodeAllocatableReservation, testCase.preReservedMemory, stateFileDirectory, testCase.affinity)
 
 			if !reflect.DeepEqual(err, testCase.expectedError) {
-				t.Errorf("Memory Manager NewManager() error, expected error '%v', but got: '%v'",
+				t.Errorf("Could not create the Memory Manager. Expected error: '%v', but got: '%v'",
 					testCase.expectedError, err)
 			}
 
@@ -2221,17 +2218,17 @@ func TestNewManager(t *testing.T) {
 				if mgr != nil {
 					rawMgr := mgr.(*manager)
 					if !reflect.DeepEqual(rawMgr.policy.Name(), testCase.policyName) {
-						t.Errorf("Memory Manager NewManager() error, expected policyName %v, but got: %v",
+						t.Errorf("Could not create the Memory Manager. Expected policy name: %v, but got: %v",
 							testCase.policyName, rawMgr.policy.Name())
 					}
 					if testCase.policyName == "single-numa" {
 						if !reflect.DeepEqual(rawMgr.policy.(*singleNUMAPolicy).systemReserved, testCase.expectedReserved) {
-							t.Errorf("Memory Manager NewManager() error, expected systemReserved %+v, but got: %+v",
+							t.Errorf("Could not create the Memory Manager. Expected system reserved: %+v, but got: %+v",
 								testCase.expectedReserved, rawMgr.policy.(*singleNUMAPolicy).systemReserved)
 						}
 					}
 				} else {
-					t.Errorf("Memory Manager NewManager undexpected error, manager=nil and it shouldn't be.")
+					t.Errorf("Could not create the Memory Manager - manager is nil, but it should not be.")
 				}
 
 			}
@@ -2239,35 +2236,35 @@ func TestNewManager(t *testing.T) {
 	}
 }
 
-func TestGetTopologyHints(t *testing.T){
+func TestGetTopologyHints(t *testing.T) {
 	testCases := []testMemoryManager{
 		{
-			description:                   "Successful hint generation",
-			policyName:                        "single-numa",
-			machineInfo: 	cadvisorapi.MachineInfo{
-					Topology: []cadvisorapi.Node{
-						{
-							Id:     0,
-							Memory: 10 * gb,
-							HugePages: []cadvisorapi.HugePagesInfo{
-								{
-									PageSize: pageSize1Gb,
-									NumPages: 5,
-								},
+			description: "Successful hint generation",
+			policyName:  "single-numa",
+			machineInfo: cadvisorapi.MachineInfo{
+				Topology: []cadvisorapi.Node{
+					{
+						Id:     0,
+						Memory: 10 * gb,
+						HugePages: []cadvisorapi.HugePagesInfo{
+							{
+								PageSize: pageSize1Gb,
+								NumPages: 5,
 							},
 						},
-						{
-							Id:     1,
-							Memory: 10 * gb,
-							HugePages: []cadvisorapi.HugePagesInfo{
-								{
-									PageSize: pageSize1Gb,
-									NumPages: 5,
-								},
+					},
+					{
+						Id:     1,
+						Memory: 10 * gb,
+						HugePages: []cadvisorapi.HugePagesInfo{
+							{
+								PageSize: pageSize1Gb,
+								NumPages: 5,
 							},
 						},
 					},
 				},
+			},
 			reserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 1 * gb,
@@ -2276,7 +2273,7 @@ func TestGetTopologyHints(t *testing.T){
 					v1.ResourceMemory: 1 * gb,
 				},
 			},
-			assignments:                   state.ContainerMemoryAssignments{
+			assignments: state.ContainerMemoryAssignments{
 				"fakePod1": map[string][]state.Block{
 					"fakeContainer1": {
 						{
@@ -2304,9 +2301,9 @@ func TestGetTopologyHints(t *testing.T){
 					},
 				},
 			},
-			machineState:                  state.NodeMap{
+			machineState: state.NodeMap{
 				0: &state.NodeState{
-					Nodes: []int{0},
+					Nodes:               []int{0},
 					NumberOfAssignments: 4,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -2326,7 +2323,7 @@ func TestGetTopologyHints(t *testing.T){
 					},
 				},
 				1: &state.NodeState{
-					Nodes: []int{1},
+					Nodes:               []int{1},
 					NumberOfAssignments: 0,
 					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
 						v1.ResourceMemory: {
@@ -2346,34 +2343,34 @@ func TestGetTopologyHints(t *testing.T){
 					},
 				},
 			},
-			expectedError:                      nil,
-			expectedHints:	map[string][]topologymanager.TopologyHint{
+			expectedError: nil,
+			expectedHints: map[string][]topologymanager.TopologyHint{
 				string(v1.ResourceMemory): {
 					{
 						NUMANodeAffinity: newNUMAAffinity(0),
-						Preferred: true,
+						Preferred:        true,
 					},
 					{
 						NUMANodeAffinity: newNUMAAffinity(1),
-						Preferred: true,
+						Preferred:        true,
 					},
 					{
-						NUMANodeAffinity: newNUMAAffinity(0,1),
-						Preferred: false,
+						NUMANodeAffinity: newNUMAAffinity(0, 1),
+						Preferred:        false,
 					},
 				},
 				string(hugepages1Gi): {
 					{
 						NUMANodeAffinity: newNUMAAffinity(0),
-						Preferred: true,
+						Preferred:        true,
 					},
 					{
 						NUMANodeAffinity: newNUMAAffinity(1),
-						Preferred: true,
+						Preferred:        true,
 					},
 					{
-						NUMANodeAffinity: newNUMAAffinity(0,1),
-						Preferred: false,
+						NUMANodeAffinity: newNUMAAffinity(0, 1),
+						Preferred:        false,
 					},
 				},
 			},
@@ -2400,7 +2397,7 @@ func TestGetTopologyHints(t *testing.T){
 			container := &pod.Spec.Containers[0]
 			hints := mgr.GetTopologyHints(pod, container)
 			if !reflect.DeepEqual(hints, testCase.expectedHints) {
-				t.Errorf("Hints were not generated properly. Hints generated %+v, hints expected %+v",
+				t.Errorf("Hints were not generated correctly. Hints generated: %+v, hints expected: %+v",
 					hints, testCase.expectedHints)
 			}
 		})

@@ -61,7 +61,7 @@ func NewPolicyStatic(machineInfo *cadvisorapi.MachineInfo, reserved systemReserv
 
 	// check if we have some reserved memory for the system
 	if totalSystemReserved <= 0 {
-		return nil, fmt.Errorf("[memorymanager] you should specify the memory reserved for the system")
+		return nil, fmt.Errorf("[memorymanager] you should specify the system reserved memory")
 	}
 
 	return &staticPolicy{
@@ -220,9 +220,9 @@ func (p *staticPolicy) RemoveContainer(s state.State, podUID string, containerNa
 			// the reserved memory smaller than the amount of the memory that should be released
 			// release as much as possible and move to the next node
 			if nodeResourceMemoryState.Reserved < releasedSize {
+				releasedSize -= nodeResourceMemoryState.Reserved
 				nodeResourceMemoryState.Free += nodeResourceMemoryState.Reserved
 				nodeResourceMemoryState.Reserved = 0
-				releasedSize -= nodeResourceMemoryState.Reserved
 				continue
 			}
 

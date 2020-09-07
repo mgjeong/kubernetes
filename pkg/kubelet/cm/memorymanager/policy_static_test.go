@@ -157,7 +157,7 @@ func TestStaticPolicyNew(t *testing.T) {
 	testCases := []testStaticPolicy{
 		{
 			description:   "should fail, when machine does not have reserved memory for the system workloads",
-			expectedError: fmt.Errorf("[memorymanager] you should specify the memory reserved for the system"),
+			expectedError: fmt.Errorf("[memorymanager] you should specify the system reserved memory"),
 		},
 		{
 			description: "should succeed, when at least one NUMA node has reserved memory",

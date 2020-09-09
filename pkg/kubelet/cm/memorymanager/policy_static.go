@@ -25,7 +25,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	corehelper "k8s.io/kubernetes/pkg/apis/core/v1/helper"
 	v1qos "k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
 	"k8s.io/kubernetes/pkg/kubelet/cm/memorymanager/state"
@@ -33,12 +33,12 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 )
 
-const policyTypeSingleNUMA policyType = "single-numa"
+const policyTypeStatic policyType = "static"
 
 type systemReservedMemory map[int]map[v1.ResourceName]uint64
 
 // SingleNUMAPolicy is implementation of the policy interface for the single NUMA policy
-type singleNUMAPolicy struct {
+type staticPolicy struct {
 	// machineInfo contains machine memory related information
 	machineInfo *cadvisorapi.MachineInfo
 	// reserved contains memory that reserved for kube
@@ -47,10 +47,10 @@ type singleNUMAPolicy struct {
 	affinity topologymanager.Store
 }
 
-var _ Policy = &singleNUMAPolicy{}
+var _ Policy = &staticPolicy{}
 
-// NewPolicySingleNUMA returns new single NUMA policy instance
-func NewPolicySingleNUMA(machineInfo *cadvisorapi.MachineInfo, reserved systemReservedMemory, affinity topologymanager.Store) (Policy, error) {
+// NewPolicyStatic returns new single NUMA policy instance
+func NewPolicyStatic(machineInfo *cadvisorapi.MachineInfo, reserved systemReservedMemory, affinity topologymanager.Store) (Policy, error) {
 	var totalSystemReserved uint64
 	for _, node := range reserved {
 		if _, ok := node[v1.ResourceMemory]; !ok {
@@ -64,18 +64,18 @@ func NewPolicySingleNUMA(machineInfo *cadvisorapi.MachineInfo, reserved systemRe
 		return nil, fmt.Errorf("[memorymanager] you should specify the memory reserved for the system")
 	}
 
-	return &singleNUMAPolicy{
+	return &staticPolicy{
 		machineInfo:    machineInfo,
 		systemReserved: reserved,
 		affinity:       affinity,
 	}, nil
 }
 
-func (p *singleNUMAPolicy) Name() string {
-	return string(policyTypeSingleNUMA)
+func (p *staticPolicy) Name() string {
+	return string(policyTypeStatic)
 }
 
-func (p *singleNUMAPolicy) Start(s state.State) error {
+func (p *staticPolicy) Start(s state.State) error {
 	if err := p.validateState(s); err != nil {
 		klog.Errorf("[memorymanager] Invalid state: %v, please drain node and remove policy state file", err)
 		return err
@@ -84,7 +84,7 @@ func (p *singleNUMAPolicy) Start(s state.State) error {
 }
 
 // Allocate call is idempotent
-func (p *singleNUMAPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Container) error {
+func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Container) error {
 	// allocate the memory only for guaranteed pods
 	if v1qos.GetPodQOS(pod) != v1.PodQOSGuaranteed {
 		return nil
@@ -184,7 +184,7 @@ func (p *singleNUMAPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Co
 }
 
 // RemoveContainer call is idempotent
-func (p *singleNUMAPolicy) RemoveContainer(s state.State, podUID string, containerName string) error {
+func (p *staticPolicy) RemoveContainer(s state.State, podUID string, containerName string) error {
 	klog.Infof("[memorymanager] RemoveContainer (pod: %s, container: %s)", podUID, containerName)
 	blocks := s.GetMemoryBlocks(podUID, containerName)
 	if blocks == nil {
@@ -241,7 +241,7 @@ func (p *singleNUMAPolicy) RemoveContainer(s state.State, podUID string, contain
 // GetTopologyHints implements the topologymanager.HintProvider Interface
 // and is consulted to achieve NUMA aware resource alignment among this
 // and other resource controllers.
-func (p *singleNUMAPolicy) GetTopologyHints(s state.State, pod *v1.Pod, container *v1.Container) map[string][]topologymanager.TopologyHint {
+func (p *staticPolicy) GetTopologyHints(s state.State, pod *v1.Pod, container *v1.Container) map[string][]topologymanager.TopologyHint {
 	if v1qos.GetPodQOS(pod) != v1.PodQOSGuaranteed {
 		return nil
 	}
@@ -311,7 +311,7 @@ func getRequestedResources(container *v1.Container) (map[v1.ResourceName]uint64,
 	return requestedResources, nil
 }
 
-func (p *singleNUMAPolicy) calculateHints(s state.State, requestedResources map[v1.ResourceName]uint64) map[string][]topologymanager.TopologyHint {
+func (p *staticPolicy) calculateHints(s state.State, requestedResources map[v1.ResourceName]uint64) map[string][]topologymanager.TopologyHint {
 	machineState := s.GetMachineState()
 	var numaNodes []int
 	for n := range machineState {
@@ -335,16 +335,16 @@ func (p *singleNUMAPolicy) calculateHints(s state.State, requestedResources map[
 		totalFreeSize := map[v1.ResourceName]uint64{}
 		totalAllocatableSize := map[v1.ResourceName]uint64{}
 		// calculate total free memory for the node mask
-		for _, nodeId := range maskBits {
+		for _, nodeID := range maskBits {
 			// the node already used for the memory allocation
-			if !singleNUMAHint && machineState[nodeId].NumberOfAssignments > 0 {
+			if !singleNUMAHint && machineState[nodeID].NumberOfAssignments > 0 {
 				// the node used for the single NUMA memory allocation, it can be used for the multi NUMA node allocation
-				if len(machineState[nodeId].Nodes) == 1 {
+				if len(machineState[nodeID].Nodes) == 1 {
 					return
 				}
 
 				// the node already used with different group of nodes, it can not be use with in the current hint
-				if !areGroupsEqual(machineState[nodeId].Nodes, maskBits) {
+				if !areGroupsEqual(machineState[nodeID].Nodes, maskBits) {
 					return
 				}
 			}
@@ -353,12 +353,12 @@ func (p *singleNUMAPolicy) calculateHints(s state.State, requestedResources map[
 				if _, ok := totalFreeSize[resourceName]; !ok {
 					totalFreeSize[resourceName] = 0
 				}
-				totalFreeSize[resourceName] += machineState[nodeId].MemoryMap[resourceName].Free
+				totalFreeSize[resourceName] += machineState[nodeID].MemoryMap[resourceName].Free
 
 				if _, ok := totalAllocatableSize[resourceName]; !ok {
 					totalAllocatableSize[resourceName] = 0
 				}
-				totalAllocatableSize[resourceName] += machineState[nodeId].MemoryMap[resourceName].Allocatable
+				totalAllocatableSize[resourceName] += machineState[nodeID].MemoryMap[resourceName].Allocatable
 			}
 		}
 
@@ -404,7 +404,7 @@ func (p *singleNUMAPolicy) calculateHints(s state.State, requestedResources map[
 	return hints
 }
 
-func (p *singleNUMAPolicy) isHintPreferred(maskBits []int, minAffinitySize int) bool {
+func (p *staticPolicy) isHintPreferred(maskBits []int, minAffinitySize int) bool {
 	return len(maskBits) == minAffinitySize
 }
 
@@ -424,7 +424,7 @@ func areGroupsEqual(group1, group2 []int) bool {
 	return true
 }
 
-func (p *singleNUMAPolicy) validateState(s state.State) error {
+func (p *staticPolicy) validateState(s state.State) error {
 	machineState := s.GetMachineState()
 	memoryAssignments := s.GetMemoryAssignments()
 
@@ -446,8 +446,8 @@ func (p *singleNUMAPolicy) validateState(s state.State) error {
 		for containerName, blocks := range container {
 			for _, b := range blocks {
 				requestedSize := b.Size
-				for _, nodeId := range b.NUMAAffinity {
-					nodeState, ok := expectedMachineState[nodeId]
+				for _, nodeID := range b.NUMAAffinity {
+					nodeState, ok := expectedMachineState[nodeID]
 					if !ok {
 						return fmt.Errorf("[memorymanager] (pod: %s, container: %s) the memory assignment uses the NUMA that does not exist", pod, containerName)
 					}
@@ -541,7 +541,7 @@ func areMachineStatesEqual(ms1, ms2 state.NodeMap) bool {
 	return true
 }
 
-func (p *singleNUMAPolicy) getDefaultMachineState() state.NodeMap {
+func (p *staticPolicy) getDefaultMachineState() state.NodeMap {
 	defaultMachineState := state.NodeMap{}
 	nodeHugepages := map[int]uint64{}
 	for _, node := range p.machineInfo.Topology {
@@ -590,7 +590,7 @@ func (p *singleNUMAPolicy) getDefaultMachineState() state.NodeMap {
 	return defaultMachineState
 }
 
-func (p *singleNUMAPolicy) getResourceSystemReserved(nodeId int, resourceName v1.ResourceName) uint64 {
+func (p *staticPolicy) getResourceSystemReserved(nodeId int, resourceName v1.ResourceName) uint64 {
 	var systemReserved uint64
 	if nodeSystemReserved, ok := p.systemReserved[nodeId]; ok {
 		if nodeMemorySystemReserved, ok := nodeSystemReserved[resourceName]; ok {
@@ -600,7 +600,7 @@ func (p *singleNUMAPolicy) getResourceSystemReserved(nodeId int, resourceName v1
 	return systemReserved
 }
 
-func (p *singleNUMAPolicy) getDefaultHint(s state.State, requestedResources map[v1.ResourceName]uint64) (*topologymanager.TopologyHint, error) {
+func (p *staticPolicy) getDefaultHint(s state.State, requestedResources map[v1.ResourceName]uint64) (*topologymanager.TopologyHint, error) {
 	hints := p.calculateHints(s, requestedResources)
 	if len(hints) < 1 {
 		return nil, fmt.Errorf("[memorymanager] failed to get the default NUMA affinity, no NUMA nodes with enough memory is available")
@@ -635,7 +635,7 @@ func isAffinitySatisfyRequest(machineState state.NodeMap, mask bitmask.BitMask, 
 // the topology manager uses bitwise AND to merge all topology hints into the best one, so in case of the restricted policy,
 // it possible that we will get the subset of hint that we provided to the topology manager, in this case we want to extend
 // it to the original one
-func (p *singleNUMAPolicy) extendTopologyManagerHint(s state.State, requestedResources map[v1.ResourceName]uint64, mask bitmask.BitMask) (*topologymanager.TopologyHint, error) {
+func (p *staticPolicy) extendTopologyManagerHint(s state.State, requestedResources map[v1.ResourceName]uint64, mask bitmask.BitMask) (*topologymanager.TopologyHint, error) {
 	hints := p.calculateHints(s, requestedResources)
 
 	var filteredHints []topologymanager.TopologyHint

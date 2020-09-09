@@ -7,7 +7,7 @@ go_library(
         "memory_manager.go",
         "policy.go",
         "policy_none.go",
-        "policy_single_numa.go",
+        "policy_static.go",
     ],
     importpath = "k8s.io/kubernetes/pkg/kubelet/cm/memorymanager",
     visibility = ["//visibility:public"],
@@ -24,7 +24,7 @@ go_library(
         "//staging/src/k8s.io/apimachinery/pkg/api/resource:go_default_library",
         "//staging/src/k8s.io/cri-api/pkg/apis/runtime/v1alpha2:go_default_library",
         "//vendor/github.com/google/cadvisor/info/v1:go_default_library",
-        "//vendor/k8s.io/klog:go_default_library",
+        "//vendor/k8s.io/klog/v2:go_default_library",
     ],
 )
 
@@ -49,7 +49,7 @@ go_test(
     name = "go_default_test",
     srcs = [
         "memory_manager_test.go",
-        "policy_single_numa_test.go",
+        "policy_static_test.go",
     ],
     embed = [":go_default_library"],
     deps = [
@@ -62,6 +62,6 @@ go_test(
         "//staging/src/k8s.io/apimachinery/pkg/types:go_default_library",
         "//vendor/github.com/google/cadvisor/info/v1:go_default_library",
         "//vendor/github.com/stretchr/testify/assert:go_default_library",
-        "//vendor/k8s.io/klog:go_default_library",
+        "//vendor/k8s.io/klog/v2:go_default_library",
     ],
 )

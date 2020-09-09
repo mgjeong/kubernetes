@@ -688,7 +688,7 @@ func run(ctx context.Context, s *options.KubeletServer, kubeDeps *kubelet.Depend
 			klog.Infof("After cpu setting is overwritten, KubeReserved=\"%v\", SystemReserved=\"%v\"", s.KubeReserved, s.SystemReserved)
 		}
 
-		preReservedMemoryZone, err := parsePreReservedMemoryConfig(s.PreReservedMemoryZone)
+		reservedMemory, err := parseReservedMemoryConfig(s.ReservedMemory)
 		if err != nil {
 			return err
 		}
@@ -738,15 +738,15 @@ func run(ctx context.Context, s *options.KubeletServer, kubeDeps *kubelet.Depend
 					ReservedSystemCPUs:       reservedSystemCPUs,
 					HardEvictionThresholds:   hardEvictionThresholds,
 				},
-				QOSReserved:                                *experimentalQOSReserved,
-				ExperimentalCPUManagerPolicy:               s.CPUManagerPolicy,
-				ExperimentalCPUManagerReconcilePeriod:      s.CPUManagerReconcilePeriod.Duration,
-				ExperimentalMemoryManagerPolicy:            s.MemoryManagerPolicy,
-				ExperimentalMemoryManagerPreReservedMemory: preReservedMemoryZone,
-				ExperimentalPodPidsLimit:                   s.PodPidsLimit,
-				EnforceCPULimits:                           s.CPUCFSQuota,
-				CPUCFSQuotaPeriod:                          s.CPUCFSQuotaPeriod.Duration,
-				ExperimentalTopologyManagerPolicy:          s.TopologyManagerPolicy,
+				QOSReserved:                             *experimentalQOSReserved,
+				ExperimentalCPUManagerPolicy:            s.CPUManagerPolicy,
+				ExperimentalCPUManagerReconcilePeriod:   s.CPUManagerReconcilePeriod.Duration,
+				ExperimentalMemoryManagerPolicy:         s.MemoryManagerPolicy,
+				ExperimentalMemoryManagerReservedMemory: reservedMemory,
+				ExperimentalPodPidsLimit:                s.PodPidsLimit,
+				EnforceCPULimits:                        s.CPUCFSQuota,
+				CPUCFSQuotaPeriod:                       s.CPUCFSQuotaPeriod.Duration,
+				ExperimentalTopologyManagerPolicy:       s.TopologyManagerPolicy,
 			},
 			s.FailSwapOn,
 			devicePluginEnabled,
@@ -1278,14 +1278,14 @@ func parseResourceList(m map[string]string) (v1.ResourceList, error) {
 	return rl, nil
 }
 
-func parsePreReservedMemoryConfig(config []map[string]string) (map[int]map[v1.ResourceName]resource.Quantity, error) {
+func parseReservedMemoryConfig(config []map[string]string) (map[int]map[v1.ResourceName]resource.Quantity, error) {
 	if len(config) == 0 {
 		return nil, nil
 	}
 
 	const (
 		indexKey = "numa-node"
-		typeKey  = "memory-type"
+		typeKey  = "type"
 		limitKey = "limit"
 	)
 
@@ -1295,7 +1295,7 @@ func parsePreReservedMemoryConfig(config []map[string]string) (map[int]map[v1.Re
 	for _, m := range config {
 		for _, key := range keys {
 			if _, exist := m[key]; !exist {
-				return nil, fmt.Errorf("key: %s is missing in given PreReservedMemoryZone flag: %v", key, config)
+				return nil, fmt.Errorf("key: %s is missing in given ReservedMemory flag: %v", key, config)
 			}
 		}
 	}

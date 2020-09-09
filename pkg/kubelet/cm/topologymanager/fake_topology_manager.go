@@ -61,6 +61,7 @@ type fakeManagerWithHint struct {
 	hint *TopologyHint
 }
 
+// NewFakeMangerWithHint returns an instance of FakeManager with specified topology hints
 func NewFakeMangerWithHint(hint *TopologyHint) Manager {
 	return &fakeManagerWithHint{
 		fakeManager: fakeManager{},

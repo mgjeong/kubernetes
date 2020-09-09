@@ -21,16 +21,14 @@ import (
 	"reflect"
 	"testing"
 
-	"k8s.io/klog"
-
-	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
-
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/cm/memorymanager/state"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
+	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 )
 
 const (
@@ -117,7 +115,7 @@ func areContainerMemoryAssignmentsEqual(cma1, cma2 state.ContainerMemoryAssignme
 	return true
 }
 
-type testSingleNUMAPolicy struct {
+type testStaticPolicy struct {
 	description           string
 	assignments           state.ContainerMemoryAssignments
 	expectedAssignments   state.ContainerMemoryAssignments
@@ -131,13 +129,13 @@ type testSingleNUMAPolicy struct {
 	expectedTopologyHints map[string][]topologymanager.TopologyHint
 }
 
-func initTests(testCase *testSingleNUMAPolicy, hint *topologymanager.TopologyHint) (Policy, state.State, error) {
+func initTests(testCase *testStaticPolicy, hint *topologymanager.TopologyHint) (Policy, state.State, error) {
 	manager := topologymanager.NewFakeManager()
 	if hint != nil {
 		manager = topologymanager.NewFakeMangerWithHint(hint)
 	}
 
-	p, err := NewPolicySingleNUMA(testCase.machineInfo, testCase.systemReserved, manager)
+	p, err := NewPolicyStatic(testCase.machineInfo, testCase.systemReserved, manager)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -155,8 +153,8 @@ func newNUMAAffinity(bits ...int) bitmask.BitMask {
 	return affinity
 }
 
-func TestSingleNUMAPolicyNew(t *testing.T) {
-	testCases := []testSingleNUMAPolicy{
+func TestStaticPolicyNew(t *testing.T) {
+	testCases := []testStaticPolicy{
 		{
 			description:   "should fail, when machine does not have reserved memory for the system workloads",
 			expectedError: fmt.Errorf("[memorymanager] you should specify the memory reserved for the system"),
@@ -182,8 +180,8 @@ func TestSingleNUMAPolicyNew(t *testing.T) {
 	}
 }
 
-func TestSingleNUMAPolicyName(t *testing.T) {
-	testCases := []testSingleNUMAPolicy{
+func TestStaticPolicyName(t *testing.T) {
+	testCases := []testStaticPolicy{
 		{
 			description: "should return the correct policy name",
 			systemReserved: systemReservedMemory{
@@ -199,15 +197,15 @@ func TestSingleNUMAPolicyName(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
-			if p.Name() != string(policyTypeSingleNUMA) {
-				t.Errorf("policy name is different, expected: %q, actual: %q", p.Name(), policyTypeSingleNUMA)
+			if p.Name() != string(policyTypeStatic) {
+				t.Errorf("policy name is different, expected: %q, actual: %q", p.Name(), policyTypeStatic)
 			}
 		})
 	}
 }
 
-func TestSingleNUMAPolicyStart(t *testing.T) {
-	testCases := []testSingleNUMAPolicy{
+func TestStaticPolicyStart(t *testing.T) {
+	testCases := []testStaticPolicy{
 		{
 			description: "should fail, if machine state is empty, but it has memory assignments",
 			assignments: state.ContainerMemoryAssignments{
@@ -1050,8 +1048,8 @@ func TestSingleNUMAPolicyStart(t *testing.T) {
 	}
 }
 
-func TestSingleNUMAPolicyAllocate(t *testing.T) {
-	testCases := []testSingleNUMAPolicy{
+func TestStaticPolicyAllocate(t *testing.T) {
+	testCases := []testStaticPolicy{
 		{
 			description:         "should do nothing for non-guaranteed pods",
 			expectedAssignments: state.ContainerMemoryAssignments{},
@@ -1763,7 +1761,7 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.description, func(t *testing.T) {
-			klog.Infof("TestSingleNUMAPolicyAllocate %s", testCase.description)
+			klog.Infof("TestStaticPolicyAllocate %s", testCase.description)
 			p, s, err := initTests(&testCase, testCase.topologyHint)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
@@ -1791,8 +1789,8 @@ func TestSingleNUMAPolicyAllocate(t *testing.T) {
 	}
 }
 
-func TestSingleNUMAPolicyRemoveContainer(t *testing.T) {
-	testCases := []testSingleNUMAPolicy{
+func TestStaticPolicyRemoveContainer(t *testing.T) {
+	testCases := []testStaticPolicy{
 		{
 			description:         "should do nothing when the container does not exist under the state",
 			expectedAssignments: state.ContainerMemoryAssignments{},
@@ -2056,8 +2054,8 @@ func TestSingleNUMAPolicyRemoveContainer(t *testing.T) {
 	}
 }
 
-func TestSingleNUMAPolicyGetTopologyHints(t *testing.T) {
-	testCases := []testSingleNUMAPolicy{
+func TestStaticPolicyGetTopologyHints(t *testing.T) {
+	testCases := []testStaticPolicy{
 		{
 			description: "should not provide topology hints for non-guaranteed pods",
 			pod:         getPod("pod1", "container1", requirementsBurstable),

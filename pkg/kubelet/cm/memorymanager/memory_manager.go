@@ -27,7 +27,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	corev1helper "k8s.io/kubernetes/pkg/apis/core/v1/helper"
 	"k8s.io/kubernetes/pkg/kubelet/cm/containermap"
 	"k8s.io/kubernetes/pkg/kubelet/cm/memorymanager/state"
@@ -119,7 +119,7 @@ type manager struct {
 var _ Manager = &manager{}
 
 // NewManager returns new instance of the memory manager
-func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, preReservedMemory map[int]map[v1.ResourceName]resource.Quantity, stateFileDirectory string, affinity topologymanager.Store) (Manager, error) {
+func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, reservedMemory map[int]map[v1.ResourceName]resource.Quantity, stateFileDirectory string, affinity topologymanager.Store) (Manager, error) {
 	var policy Policy
 
 	switch policyType(policyName) {
@@ -127,13 +127,13 @@ func NewManager(policyName string, machineInfo *cadvisorapi.MachineInfo, nodeAll
 	case policyTypeNone:
 		policy = NewPolicyNone()
 
-	case policyTypeSingleNUMA:
-		systemReserved, err := getSystemReservedMemory(machineInfo, nodeAllocatableReservation, preReservedMemory)
+	case policyTypeStatic:
+		systemReserved, err := getSystemReservedMemory(machineInfo, nodeAllocatableReservation, reservedMemory)
 		if err != nil {
 			return nil, err
 		}
 
-		policy, err = NewPolicySingleNUMA(machineInfo, systemReserved, affinity)
+		policy, err = NewPolicyStatic(machineInfo, systemReserved, affinity)
 		if err != nil {
 			return nil, err
 		}

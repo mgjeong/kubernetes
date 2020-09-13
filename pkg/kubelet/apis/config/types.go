@@ -370,8 +370,8 @@ type KubeletConfiguration struct {
 	// Each configuration describes pre-reserved memory for the particular memory type on a specific NUMA node.
 	// The Memory Manager validates whether total amount of pre-reserved memory is identical to reserved-memory by the Node Allocatable feature.
 	// The format is {numa-node=integer, memory-type=string, limit=string}
-	// (e.g. {numa-node=0, memory-type=memory, limit=1Gi}, {numa-node=1, memory-type=memory, limit=1Gi})
-	PreReservedMemoryZone []map[string]string
+	// (e.g. {numa-node=0, type=memory, limit=1Gi}, {numa-node=1, type=memory, limit=1Gi})
+	ReservedMemory []map[string]string
 }
 
 // KubeletAuthorizationMode denotes the authorization mode for the kubelet

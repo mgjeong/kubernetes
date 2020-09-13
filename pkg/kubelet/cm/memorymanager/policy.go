@@ -25,8 +25,6 @@ import (
 // Type defines the policy type
 type policyType string
 
-//TODO: we should re-use the policy interface under the CPU manager
-
 // Policy implements logic for pod container to a memory assignment.
 type Policy interface {
 	Name() string

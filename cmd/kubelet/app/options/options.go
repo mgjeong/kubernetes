@@ -543,5 +543,5 @@ func AddKubeletConfigFlags(mainfs *pflag.FlagSet, c *kubeletconfig.KubeletConfig
 
 	// Memory Manager Flags
 	fs.StringVar(&c.MemoryManagerPolicy, "memory-manager-policy", c.MemoryManagerPolicy, "Memory Manager policy to use. Possible values: 'none', 'singleNUMA'. Default: 'none'")
-	fs.Var(cliflag.NewBracketSeparatedSliceMapStringString(&c.PreReservedMemoryZone), "pre-reserved-memory-zone", "A comma separated list of bracket-enclosed configuration for memory manager (e.g. {numa-node=0, memory-type=memory, limit=1Gi}, {numa-node=1, memory-type=memory, limit=1Gi})")
+	fs.Var(cliflag.NewBracketSeparatedSliceMapStringString(&c.ReservedMemory), "reserved-memory", "A comma separated list of bracket-enclosed configuration for memory manager (e.g. {numa-node=0, type=memory, limit=1Gi}, {numa-node=1, type=memory, limit=1Gi})")
 }

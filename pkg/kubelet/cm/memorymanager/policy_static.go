@@ -238,6 +238,110 @@ func (p *staticPolicy) RemoveContainer(s state.State, podUID string, containerNa
 	return nil
 }
 
+func regenerateHints(pod *v1.Pod, ctn *v1.Container, ctnBlocks []state.Block, reqRsrc map[v1.ResourceName]uint64) map[string][]topologymanager.TopologyHint {
+	hints := map[string][]topologymanager.TopologyHint{}
+	for resourceName := range reqRsrc {
+		hints[string(resourceName)] = []topologymanager.TopologyHint{}
+	}
+
+	if len(ctnBlocks) != len(reqRsrc) {
+		klog.Errorf("[memorymanager] The number of requested resources by the container %s differs from the number of memory blocks", ctn.Name)
+		return nil
+	}
+
+	for _, b := range ctnBlocks {
+		if _, ok := reqRsrc[b.Type]; !ok {
+			klog.Errorf("[memorymanager] Container %s requested resources do not have resource of type %s", ctn.Name, b.Type)
+			return nil
+		}
+
+		if b.Size != reqRsrc[b.Type] {
+			klog.Errorf("[memorymanager] Memory %s already allocated to (pod %v, container %v) with different number than request: requested: %d, allocated: %d", b.Type, pod.UID, ctn.Name, reqRsrc[b.Type], b.Size)
+			return nil
+		}
+
+		containerNUMAAffinity, err := bitmask.NewBitMask(b.NUMAAffinity...)
+		if err != nil {
+			klog.Errorf("[memorymanager] failed to generate NUMA bitmask: %v", err)
+			return nil
+		}
+
+		klog.Infof("[memorymanager] Regenerating TopologyHints, %s was already allocated to (pod %v, container %v)", b.Type, pod.UID, ctn.Name)
+		hints[string(b.Type)] = append(hints[string(b.Type)], topologymanager.TopologyHint{
+			NUMANodeAffinity: containerNUMAAffinity,
+			Preferred:        true,
+		})
+	}
+	return hints
+}
+
+func getPodRequestedResources(pod *v1.Pod) (map[v1.ResourceName]uint64, error) {
+	reqRsrcsByInitCtrs := make(map[v1.ResourceName]uint64)
+	reqRsrcsByAppCtrs := make(map[v1.ResourceName]uint64)
+
+	for _, ctr := range pod.Spec.InitContainers {
+		reqRsrcs, err := getRequestedResources(&ctr)
+
+		if err != nil {
+			return nil, err
+		}
+		for rsrcName, qty := range reqRsrcs {
+			if _, ok := reqRsrcsByInitCtrs[rsrcName]; !ok {
+				reqRsrcsByInitCtrs[rsrcName] = uint64(0)
+			}
+
+			if reqRsrcs[rsrcName] > reqRsrcsByInitCtrs[rsrcName] {
+				reqRsrcsByInitCtrs[rsrcName] = qty
+			}
+		}
+	}
+
+	for _, ctr := range pod.Spec.Containers {
+		reqRsrcs, err := getRequestedResources(&ctr)
+
+		if err != nil {
+			return nil, err
+		}
+		for rsrcName, qty := range reqRsrcs {
+			if _, ok := reqRsrcsByAppCtrs[rsrcName]; !ok {
+				reqRsrcsByAppCtrs[rsrcName] = uint64(0)
+			}
+
+			reqRsrcsByAppCtrs[rsrcName] += qty
+		}
+	}
+
+	for rsrcName := range reqRsrcsByAppCtrs {
+		if reqRsrcsByInitCtrs[rsrcName] > reqRsrcsByAppCtrs[rsrcName] {
+			reqRsrcsByAppCtrs[rsrcName] = reqRsrcsByInitCtrs[rsrcName]
+		}
+	}
+	return reqRsrcsByAppCtrs, nil
+}
+
+func (p *staticPolicy) GetPodTopologyHints(s state.State, pod *v1.Pod) map[string][]topologymanager.TopologyHint {
+	if v1qos.GetPodQOS(pod) != v1.PodQOSGuaranteed {
+		return nil
+	}
+
+	reqRsrcs, err := getPodRequestedResources(pod)
+	if err != nil {
+		klog.Error(err.Error())
+		return nil
+	}
+
+	for _, ctn := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
+		containerBlocks := s.GetMemoryBlocks(string(pod.UID), ctn.Name)
+		// Short circuit to regenerate the same hints if there are already
+		// memory allocated for the container. This might happen after a
+		// kubelet restart, for example.
+		if containerBlocks != nil {
+			return regenerateHints(pod, &ctn, containerBlocks, reqRsrcs)
+		}
+	}
+	return p.calculateHints(s, reqRsrcs)
+}
+
 // GetTopologyHints implements the topologymanager.HintProvider Interface
 // and is consulted to achieve NUMA aware resource alignment among this
 // and other resource controllers.
@@ -252,45 +356,12 @@ func (p *staticPolicy) GetTopologyHints(s state.State, pod *v1.Pod, container *v
 		return nil
 	}
 
-	hints := map[string][]topologymanager.TopologyHint{}
-	for resourceName := range requestedResources {
-		hints[string(resourceName)] = []topologymanager.TopologyHint{}
-	}
-
 	containerBlocks := s.GetMemoryBlocks(string(pod.UID), container.Name)
 	// Short circuit to regenerate the same hints if there are already
 	// memory allocated for the container. This might happen after a
 	// kubelet restart, for example.
 	if containerBlocks != nil {
-		if len(containerBlocks) != len(requestedResources) {
-			klog.Errorf("[memorymanager] The number of requested resources by the container %s differs from the number of memory blocks", container.Name)
-			return nil
-		}
-
-		for _, b := range containerBlocks {
-			if _, ok := requestedResources[b.Type]; !ok {
-				klog.Errorf("[memorymanager] Container %s requested resources do not have resource of type %s", container.Name, b.Type)
-				return nil
-			}
-
-			if b.Size != requestedResources[b.Type] {
-				klog.Errorf("[memorymanager] Memory %s already allocated to (pod %v, container %v) with different number than request: requested: %d, allocated: %d", b.Type, pod.UID, container.Name, requestedResources[b.Type], b.Size)
-				return nil
-			}
-
-			containerNUMAAffinity, err := bitmask.NewBitMask(b.NUMAAffinity...)
-			if err != nil {
-				klog.Errorf("[memorymanager] failed to generate NUMA bitmask: %v", err)
-				return nil
-			}
-
-			klog.Infof("[memorymanager] Regenerating TopologyHints, %s was already allocated to (pod %v, container %v)", b.Type, pod.UID, container.Name)
-			hints[string(b.Type)] = append(hints[string(b.Type)], topologymanager.TopologyHint{
-				NUMANodeAffinity: containerNUMAAffinity,
-				Preferred:        true,
-			})
-		}
-		return hints
+		return regenerateHints(pod, container, containerBlocks, requestedResources)
 	}
 
 	return p.calculateHints(s, requestedResources)

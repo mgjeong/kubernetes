@@ -238,6 +238,63 @@ func (p *staticPolicy) RemoveContainer(s state.State, podUID string, containerNa
 	return nil
 }
 
+func (p *staticPolicy) getPodRequestedResources(pod *v1.Pod) (map[v1.ResourceName]uint64, error) {
+	var reqRsrcsByInitCtrs, reqRsrcsByAppCtrs map[v1.ResourceName]uint64
+
+	for _, ctr := range pod.Spec.InitContainers {
+		reqRsrcs, err := getRequestedResources(&ctr)
+
+		if err != nil {
+			return nil, err
+		}
+		for rsrcName, qty := range reqRsrcs {
+			if _, ok := reqRsrcsByInitCtrs[rsrcName]; !ok {
+				reqRsrcsByInitCtrs[rsrcName] = uint64(0)
+			}
+
+			if reqRsrcs[rsrcName] > reqRsrcsByInitCtrs[rsrcName] {
+				reqRsrcsByInitCtrs[rsrcName] = qty
+			}
+		}
+	}
+
+	for _, ctr := range pod.Spec.Containers {
+		reqRsrcs, err := getRequestedResources(&ctr)
+
+		if err != nil {
+			return nil, err
+		}
+		for rsrcName, qty := range reqRsrcs {
+			if _, ok := reqRsrcsByAppCtrs[rsrcName]; !ok {
+				reqRsrcsByAppCtrs[rsrcName] = uint64(0)
+			}
+
+			reqRsrcsByAppCtrs[rsrcName] += qty
+		}
+	}
+
+	for rsrcName := range reqRsrcsByAppCtrs {
+		if reqRsrcsByInitCtrs[rsrcName] > reqRsrcsByAppCtrs[rsrcName] {
+			reqRsrcsByAppCtrs[rsrcName] = reqRsrcsByInitCtrs[rsrcName]
+		}
+	}
+	return reqRsrcsByAppCtrs, nil
+}
+
+func (p *staticPolicy) GetPodTopologyHints(s state.State, pod *v1.Pod) map[string][]topologymanager.TopologyHint {
+	if v1qos.GetPodQOS(pod) != v1.PodQOSGuaranteed {
+		return nil
+	}
+
+	reqRsrcs, err := p.getPodRequestedResources(pod)
+	if err != nil {
+		klog.Error(err.Error())
+		return nil
+	}
+
+	return p.calculateHints(s, reqRsrcs)
+}
+
 // GetTopologyHints implements the topologymanager.HintProvider Interface
 // and is consulted to achieve NUMA aware resource alignment among this
 // and other resource controllers.

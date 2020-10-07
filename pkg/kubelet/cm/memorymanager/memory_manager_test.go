@@ -57,7 +57,7 @@ type testMemoryManager struct {
 	updateError                error
 	removeContainerID          string
 	nodeAllocatableReservation v1.ResourceList
-	policyName                 string
+	policyName                 policyType
 	affinity                   topologymanager.Store
 	preReservedMemory          map[int]map[v1.ResourceName]resource.Quantity
 	expectedHints              map[string][]topologymanager.TopologyHint
@@ -90,7 +90,7 @@ type mockPolicy struct {
 }
 
 func (p *mockPolicy) Name() string {
-	return "mock"
+	return string(policyTypeMock)
 }
 
 func (p *mockPolicy) Start(s state.State) error {
@@ -367,7 +367,7 @@ func TestRemoveStaleState(t *testing.T) {
 	testCases := []testMemoryManager{
 		{
 			description: "Should fail - policy returns an error",
-			policyName:  "mock",
+			policyName:  policyTypeMock,
 			machineInfo: machineInfo,
 			reserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
@@ -520,7 +520,7 @@ func TestRemoveStaleState(t *testing.T) {
 		},
 		{
 			description: "Stale state succesfuly removed, without multi NUMA assignments",
-			policyName:  "static",
+			policyName:  policyTypeStatic,
 			machineInfo: machineInfo,
 			reserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
@@ -646,7 +646,7 @@ func TestRemoveStaleState(t *testing.T) {
 		},
 		{
 			description: "Stale state succesfuly removed, with multi NUMA assignments",
-			policyName:  "static",
+			policyName:  policyTypeStatic,
 			machineInfo: machineInfo,
 			reserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
@@ -815,7 +815,7 @@ func TestAddContainer(t *testing.T) {
 	testCases := []testMemoryManager{
 		{
 			description: "Correct allocation and adding container on NUMA 0",
-			policyName:  "static",
+			policyName:  policyTypeStatic,
 			machineInfo: machineInfo,
 			reserved:    reserved,
 			machineState: state.NodeMap{
@@ -912,7 +912,7 @@ func TestAddContainer(t *testing.T) {
 		{
 			description:               "Shouldn't return any error when policy is set as None",
 			updateError:               nil,
-			policyName:                "none",
+			policyName:                policyTypeNone,
 			machineInfo:               machineInfo,
 			reserved:                  reserved,
 			machineState:              state.NodeMap{},
@@ -926,7 +926,7 @@ func TestAddContainer(t *testing.T) {
 		{
 			description: "Allocation should fail if policy returns an error",
 			updateError: nil,
-			policyName:  "mock",
+			policyName:  policyTypeMock,
 			machineInfo: machineInfo,
 			reserved:    reserved,
 			machineState: state.NodeMap{
@@ -1022,7 +1022,7 @@ func TestAddContainer(t *testing.T) {
 		{
 			description: "Adding container should fail (CRI error) but without an error",
 			updateError: fmt.Errorf("Fake reg error"),
-			policyName:  "static",
+			policyName:  policyTypeStatic,
 			machineInfo: machineInfo,
 			reserved:    reserved,
 			machineState: state.NodeMap{
@@ -1117,7 +1117,7 @@ func TestAddContainer(t *testing.T) {
 		},
 		{
 			description: "Correct allocation of container requiring amount of memory higher than capacity of one NUMA node",
-			policyName:  "static",
+			policyName:  policyTypeStatic,
 			machineInfo: machineInfo,
 			reserved:    reserved,
 			machineState: state.NodeMap{
@@ -1223,7 +1223,7 @@ func TestAddContainer(t *testing.T) {
 		},
 		{
 			description: "Should fail if try to allocate container requiring amount of memory higher than capacity of one NUMA node but a small pod is already allocated",
-			policyName:  "static",
+			policyName:  policyTypeStatic,
 			machineInfo: machineInfo,
 			firstPod:    pod,
 			reserved:    reserved,
@@ -1413,7 +1413,7 @@ func TestRemoveContainer(t *testing.T) {
 		{
 			description:       "Correct removing of a container",
 			removeContainerID: "fakeID2",
-			policyName:        "static",
+			policyName:        policyTypeStatic,
 			machineInfo:       machineInfo,
 			reserved:          reserved,
 			assignments: state.ContainerMemoryAssignments{
@@ -1549,7 +1549,7 @@ func TestRemoveContainer(t *testing.T) {
 		{
 			description:       "Correct removing of a multi NUMA container",
 			removeContainerID: "fakeID2",
-			policyName:        "static",
+			policyName:        policyTypeStatic,
 			machineInfo:       machineInfo,
 			reserved:          reserved,
 			assignments: state.ContainerMemoryAssignments{
@@ -1685,7 +1685,7 @@ func TestRemoveContainer(t *testing.T) {
 		{
 			description:       "Should fail if policy returns an error",
 			removeContainerID: "fakeID1",
-			policyName:        "mock",
+			policyName:        policyTypeMock,
 			machineInfo:       machineInfo,
 			reserved:          reserved,
 			assignments: state.ContainerMemoryAssignments{
@@ -1833,7 +1833,7 @@ func TestRemoveContainer(t *testing.T) {
 		{
 			description:       "Should do nothing if container is not in containerMap",
 			removeContainerID: "fakeID3",
-			policyName:        "static",
+			policyName:        policyTypeStatic,
 			machineInfo:       machineInfo,
 			reserved:          reserved,
 			assignments: state.ContainerMemoryAssignments{
@@ -2031,7 +2031,7 @@ func TestNewManager(t *testing.T) {
 	testCases := []testMemoryManager{
 		{
 			description:                "Successful creation of Memory Manager instance",
-			policyName:                 "static",
+			policyName:                 policyTypeStatic,
 			machineInfo:                machineInfo,
 			nodeAllocatableReservation: v1.ResourceList{v1.ResourceMemory: *resource.NewQuantity(2*gb, resource.BinarySI)},
 			preReservedMemory: map[int]map[v1.ResourceName]resource.Quantity{
@@ -2044,7 +2044,7 @@ func TestNewManager(t *testing.T) {
 		},
 		{
 			description:                "Should return an error when preReservedMemory (configured with kubelet flag) does not comply with Node Allocatable feature values",
-			policyName:                 "static",
+			policyName:                 policyTypeStatic,
 			machineInfo:                machineInfo,
 			nodeAllocatableReservation: v1.ResourceList{v1.ResourceMemory: *resource.NewQuantity(2*gb, resource.BinarySI)},
 			preReservedMemory: map[int]map[v1.ResourceName]resource.Quantity{
@@ -2057,7 +2057,7 @@ func TestNewManager(t *testing.T) {
 		},
 		{
 			description:                "Should return an error when memory reserved for system is empty (preReservedMemory)",
-			policyName:                 "static",
+			policyName:                 policyTypeStatic,
 			machineInfo:                machineInfo,
 			nodeAllocatableReservation: v1.ResourceList{},
 			preReservedMemory:          map[int]map[v1.ResourceName]resource.Quantity{},
@@ -2077,7 +2077,7 @@ func TestNewManager(t *testing.T) {
 		},
 		{
 			description:                "Should create manager with \"none\" policy",
-			policyName:                 "none",
+			policyName:                 policyTypeNone,
 			machineInfo:                machineInfo,
 			nodeAllocatableReservation: v1.ResourceList{},
 			preReservedMemory:          map[int]map[v1.ResourceName]resource.Quantity{},
@@ -2094,7 +2094,7 @@ func TestNewManager(t *testing.T) {
 			}
 			defer os.RemoveAll(stateFileDirectory)
 
-			mgr, err := NewManager(testCase.policyName, &testCase.machineInfo, testCase.nodeAllocatableReservation, testCase.preReservedMemory, stateFileDirectory, testCase.affinity)
+			mgr, err := NewManager(string(testCase.policyName), &testCase.machineInfo, testCase.nodeAllocatableReservation, testCase.preReservedMemory, stateFileDirectory, testCase.affinity)
 
 			if !reflect.DeepEqual(err, testCase.expectedError) {
 				t.Errorf("Could not create the Memory Manager. Expected error: '%v', but got: '%v'",
@@ -2104,11 +2104,11 @@ func TestNewManager(t *testing.T) {
 			if testCase.expectedError == nil {
 				if mgr != nil {
 					rawMgr := mgr.(*manager)
-					if !reflect.DeepEqual(rawMgr.policy.Name(), testCase.policyName) {
+					if !reflect.DeepEqual(rawMgr.policy.Name(), string(testCase.policyName)) {
 						t.Errorf("Could not create the Memory Manager. Expected policy name: %v, but got: %v",
 							testCase.policyName, rawMgr.policy.Name())
 					}
-					if testCase.policyName == "static" {
+					if testCase.policyName == policyTypeStatic {
 						if !reflect.DeepEqual(rawMgr.policy.(*staticPolicy).systemReserved, testCase.expectedReserved) {
 							t.Errorf("Could not create the Memory Manager. Expected system reserved: %+v, but got: %+v",
 								testCase.expectedReserved, rawMgr.policy.(*staticPolicy).systemReserved)
@@ -2127,7 +2127,7 @@ func TestGetTopologyHints(t *testing.T) {
 	testCases := []testMemoryManager{
 		{
 			description: "Successful hint generation",
-			policyName:  "static",
+			policyName:  policyTypeStatic,
 			machineInfo: returnMachineInfo(),
 			reserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{

@@ -41,6 +41,8 @@ const (
 	hugepages1G = "hugepages-1Gi"
 )
 
+const policyTypeMock policyType = "mock"
+
 type testMemoryManager struct {
 	description                string
 	policy                     Policy
@@ -67,15 +69,15 @@ type testMemoryManager struct {
 }
 
 func returnPolicyByName(testCase testMemoryManager) Policy {
-	switch testCase.policyName {
-	case "mock":
+	switch policyType(testCase.policyName) {
+	case policyTypeMock:
 		return &mockPolicy{
 			err: fmt.Errorf("Fake reg error"),
 		}
-	case "static":
+	case policyTypeStatic:
 		policy, _ := NewPolicyStatic(&testCase.machineInfo, testCase.reserved, topologymanager.NewFakeManager())
 		return policy
-	case "none":
+	case policyTypeNone:
 		return NewPolicyNone()
 	}
 	return nil
@@ -300,30 +302,7 @@ func TestConvertPreReserved(t *testing.T) {
 }
 
 func TestGetSystemReservedMemory(t *testing.T) {
-	machineInfo := cadvisorapi.MachineInfo{
-		Topology: []cadvisorapi.Node{
-			{
-				Id:     0,
-				Memory: 10 * gb,
-				HugePages: []cadvisorapi.HugePagesInfo{
-					{
-						PageSize: pageSize1Gb,
-						NumPages: 5,
-					},
-				},
-			},
-			{
-				Id:     1,
-				Memory: 10 * gb,
-				HugePages: []cadvisorapi.HugePagesInfo{
-					{
-						PageSize: pageSize1Gb,
-						NumPages: 5,
-					},
-				},
-			},
-		},
-	}
+	machineInfo := returnMachineInfo()
 	testCases := []testMemoryManager{
 		{
 			description:                "Should return empty map when reservation is not done",
@@ -384,30 +363,7 @@ func TestGetSystemReservedMemory(t *testing.T) {
 }
 
 func TestRemoveStaleState(t *testing.T) {
-	machineInfo := cadvisorapi.MachineInfo{
-		Topology: []cadvisorapi.Node{
-			{
-				Id:     0,
-				Memory: 10 * gb,
-				HugePages: []cadvisorapi.HugePagesInfo{
-					{
-						PageSize: pageSize1Gb,
-						NumPages: 5,
-					},
-				},
-			},
-			{
-				Id:     1,
-				Memory: 10 * gb,
-				HugePages: []cadvisorapi.HugePagesInfo{
-					{
-						PageSize: pageSize1Gb,
-						NumPages: 5,
-					},
-				},
-			},
-		},
-	}
+	machineInfo := returnMachineInfo()
 	testCases := []testMemoryManager{
 		{
 			description: "Should fail - policy returns an error",
@@ -846,30 +802,7 @@ func TestRemoveStaleState(t *testing.T) {
 }
 
 func TestAddContainer(t *testing.T) {
-	machineInfo := cadvisorapi.MachineInfo{
-		Topology: []cadvisorapi.Node{
-			{
-				Id:     0,
-				Memory: 10 * gb,
-				HugePages: []cadvisorapi.HugePagesInfo{
-					{
-						PageSize: pageSize1Gb,
-						NumPages: 5,
-					},
-				},
-			},
-			{
-				Id:     1,
-				Memory: 10 * gb,
-				HugePages: []cadvisorapi.HugePagesInfo{
-					{
-						PageSize: pageSize1Gb,
-						NumPages: 5,
-					},
-				},
-			},
-		},
-	}
+	machineInfo := returnMachineInfo()
 	reserved := systemReservedMemory{
 		0: map[v1.ResourceName]uint64{
 			v1.ResourceMemory: 1 * gb,
@@ -1467,30 +1400,7 @@ func TestAddContainer(t *testing.T) {
 }
 
 func TestRemoveContainer(t *testing.T) {
-	machineInfo := cadvisorapi.MachineInfo{
-		Topology: []cadvisorapi.Node{
-			{
-				Id:     0,
-				Memory: 10 * gb,
-				HugePages: []cadvisorapi.HugePagesInfo{
-					{
-						PageSize: pageSize1Gb,
-						NumPages: 5,
-					},
-				},
-			},
-			{
-				Id:     1,
-				Memory: 10 * gb,
-				HugePages: []cadvisorapi.HugePagesInfo{
-					{
-						PageSize: pageSize1Gb,
-						NumPages: 5,
-					},
-				},
-			},
-		},
-	}
+	machineInfo := returnMachineInfo()
 	reserved := systemReservedMemory{
 		0: map[v1.ResourceName]uint64{
 			v1.ResourceMemory: 1 * gb,
@@ -2109,30 +2019,7 @@ func TestRemoveContainer(t *testing.T) {
 }
 
 func TestNewManager(t *testing.T) {
-	machineInfo := cadvisorapi.MachineInfo{
-		Topology: []cadvisorapi.Node{
-			{
-				Id:     0,
-				Memory: 10 * gb,
-				HugePages: []cadvisorapi.HugePagesInfo{
-					{
-						PageSize: pageSize1Gb,
-						NumPages: 5,
-					},
-				},
-			},
-			{
-				Id:     1,
-				Memory: 10 * gb,
-				HugePages: []cadvisorapi.HugePagesInfo{
-					{
-						PageSize: pageSize1Gb,
-						NumPages: 5,
-					},
-				},
-			},
-		},
-	}
+	machineInfo := returnMachineInfo()
 	expectedReserved := systemReservedMemory{
 		0: map[v1.ResourceName]uint64{
 			v1.ResourceMemory: 1 * gb,
@@ -2241,30 +2128,7 @@ func TestGetTopologyHints(t *testing.T) {
 		{
 			description: "Successful hint generation",
 			policyName:  "static",
-			machineInfo: cadvisorapi.MachineInfo{
-				Topology: []cadvisorapi.Node{
-					{
-						Id:     0,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-					{
-						Id:     1,
-						Memory: 10 * gb,
-						HugePages: []cadvisorapi.HugePagesInfo{
-							{
-								PageSize: pageSize1Gb,
-								NumPages: 5,
-							},
-						},
-					},
-				},
-			},
+			machineInfo: returnMachineInfo(),
 			reserved: systemReservedMemory{
 				0: map[v1.ResourceName]uint64{
 					v1.ResourceMemory: 1 * gb,
@@ -2403,4 +2267,31 @@ func TestGetTopologyHints(t *testing.T) {
 		})
 	}
 
+}
+
+func returnMachineInfo() cadvisorapi.MachineInfo {
+	return cadvisorapi.MachineInfo{
+		Topology: []cadvisorapi.Node{
+			{
+				Id:     0,
+				Memory: 10 * gb,
+				HugePages: []cadvisorapi.HugePagesInfo{
+					{
+						PageSize: pageSize1Gb,
+						NumPages: 5,
+					},
+				},
+			},
+			{
+				Id:     1,
+				Memory: 10 * gb,
+				HugePages: []cadvisorapi.HugePagesInfo{
+					{
+						PageSize: pageSize1Gb,
+						NumPages: 5,
+					},
+				},
+			},
+		},
+	}
 }

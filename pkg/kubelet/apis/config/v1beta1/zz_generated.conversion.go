@@ -274,6 +274,7 @@ func autoConvert_v1beta1_KubeletConfiguration_To_config_KubeletConfiguration(in 
 	out.CgroupDriver = in.CgroupDriver
 	out.CPUManagerPolicy = in.CPUManagerPolicy
 	out.CPUManagerReconcilePeriod = in.CPUManagerReconcilePeriod
+	out.MemoryManagerPolicy = in.MemoryManagerPolicy
 	out.TopologyManagerPolicy = in.TopologyManagerPolicy
 	out.QOSReserved = *(*map[string]string)(unsafe.Pointer(&in.QOSReserved))
 	out.RuntimeRequestTimeout = in.RuntimeRequestTimeout
@@ -349,6 +350,7 @@ func autoConvert_v1beta1_KubeletConfiguration_To_config_KubeletConfiguration(in 
 	if err := v1.Convert_Pointer_bool_To_bool(&in.EnableSystemLogHandler, &out.EnableSystemLogHandler, s); err != nil {
 		return err
 	}
+	out.ReservedMemory = *(*[]map[string]string)(unsafe.Pointer(&in.ReservedMemory))
 	return nil
 }
 
@@ -426,6 +428,7 @@ func autoConvert_config_KubeletConfiguration_To_v1beta1_KubeletConfiguration(in 
 	out.CgroupDriver = in.CgroupDriver
 	out.CPUManagerPolicy = in.CPUManagerPolicy
 	out.CPUManagerReconcilePeriod = in.CPUManagerReconcilePeriod
+	out.MemoryManagerPolicy = in.MemoryManagerPolicy
 	out.TopologyManagerPolicy = in.TopologyManagerPolicy
 	out.QOSReserved = *(*map[string]string)(unsafe.Pointer(&in.QOSReserved))
 	out.RuntimeRequestTimeout = in.RuntimeRequestTimeout
@@ -499,6 +502,7 @@ func autoConvert_config_KubeletConfiguration_To_v1beta1_KubeletConfiguration(in 
 	if err := v1.Convert_bool_To_Pointer_bool(&in.EnableSystemLogHandler, &out.EnableSystemLogHandler, s); err != nil {
 		return err
 	}
+	out.ReservedMemory = *(*[]map[string]string)(unsafe.Pointer(&in.ReservedMemory))
 	return nil
 }
 

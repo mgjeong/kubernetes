@@ -64,9 +64,12 @@ const (
 	// NoneTopologyManager Policy is a mode in which kubelet has no knowledge
 	// of NUMA alignment of a pod's CPU and device resources.
 	NoneTopologyManagerPolicy = "none"
-	// SingleNumaNodeTopologyManager Policy iis a mode in which kubelet only allows
+	// SingleNumaNodeTopologyManager Policy is a mode in which kubelet only allows
 	// pods with a single NUMA alignment of CPU and device resources.
 	SingleNumaNodeTopologyManager = "single-numa-node"
+	// NoneMemoryManagerPolicy is a memory manager none policy, under the none policy
+	// the memory manager will not pin containers memory of guaranteed pods
+	NoneMemoryManagerPolicy = "none"
 )
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -427,6 +430,13 @@ type KubeletConfiguration struct {
 	// Default: "10s"
 	// +optional
 	CPUManagerReconcilePeriod metav1.Duration `json:"cpuManagerReconcilePeriod,omitempty"`
+	// MemoryManagerPolicy is the name of the policy to use by memory manager.
+	// Requires the MemoryManager feature gate to be enabled.
+	// Dynamic Kubelet Config (beta): This field should not be updated without a full node
+	// reboot. It is safest to keep this value the same as the local config.
+	// Default: "none"
+	// +optional
+	MemoryManagerPolicy string `json:"memoryManagerPolicy,omitempty"`
 	// TopologyManagerPolicy is the name of the policy to use.
 	// Policies other than "none" require the TopologyManager feature gate to be enabled.
 	// Dynamic Kubelet Config (beta): This field should not be updated without a full node
@@ -803,6 +813,14 @@ type KubeletConfiguration struct {
 	// Default: true
 	// +optional
 	EnableSystemLogHandler *bool `json:"enableSystemLogHandler,omitempty"`
+	// A comma separated list of bracket-enclosed configurations for memory manager.
+	// Each configuration describes pre-reserved memory for the certain memory type on a specific NUMA node.
+	// The Memory Manager validates whether total amount of pre-reserved memory is identical to reserved-memory by the Node Allocatable feature.
+	// The format is {numa-node=integer, memory-type=string, limit=string}
+	// (e.g. {numa-node=0, type=memory, limit=1Gi}, {numa-node=1, type=memory, limit=1Gi})
+	// Default: nil
+	// +optional
+	ReservedMemory []map[string]string `json:"reservedMemory,omitempty"`
 }
 
 type KubeletAuthorizationMode string

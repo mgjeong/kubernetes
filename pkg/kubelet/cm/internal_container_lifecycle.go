@@ -22,6 +22,7 @@ import (
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	kubefeatures "k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager"
+	"k8s.io/kubernetes/pkg/kubelet/cm/memorymanager"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
 )
 
@@ -34,12 +35,19 @@ type InternalContainerLifecycle interface {
 // Implements InternalContainerLifecycle interface.
 type internalContainerLifecycleImpl struct {
 	cpuManager      cpumanager.Manager
+	memoryManager   memorymanager.Manager
 	topologyManager topologymanager.Manager
 }
 
 func (i *internalContainerLifecycleImpl) PreStartContainer(pod *v1.Pod, container *v1.Container, containerID string) error {
 	if i.cpuManager != nil {
 		err := i.cpuManager.AddContainer(pod, container, containerID)
+		if err != nil {
+			return err
+		}
+	}
+	if i.memoryManager != nil {
+		err := i.memoryManager.AddContainer(pod, container, containerID)
 		if err != nil {
 			return err
 		}

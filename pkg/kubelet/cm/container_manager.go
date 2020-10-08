@@ -19,7 +19,9 @@ package cm
 import (
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
+
 	// TODO: Migrate kubelet to either use its own internal objects or client library.
 	v1 "k8s.io/api/core/v1"
 	internalapi "k8s.io/cri-api/pkg/apis"
@@ -128,13 +130,15 @@ type NodeConfig struct {
 	KubeletRootDir        string
 	ProtectKernelDefaults bool
 	NodeAllocatableConfig
-	QOSReserved                           map[v1.ResourceName]int64
-	ExperimentalCPUManagerPolicy          string
-	ExperimentalCPUManagerReconcilePeriod time.Duration
-	ExperimentalPodPidsLimit              int64
-	EnforceCPULimits                      bool
-	CPUCFSQuotaPeriod                     time.Duration
-	ExperimentalTopologyManagerPolicy     string
+	QOSReserved                             map[v1.ResourceName]int64
+	ExperimentalCPUManagerPolicy            string
+	ExperimentalCPUManagerReconcilePeriod   time.Duration
+	ExperimentalMemoryManagerPolicy         string
+	ExperimentalMemoryManagerReservedMemory map[int]map[v1.ResourceName]resource.Quantity
+	ExperimentalPodPidsLimit                int64
+	EnforceCPULimits                        bool
+	CPUCFSQuotaPeriod                       time.Duration
+	ExperimentalTopologyManagerPolicy       string
 }
 
 type NodeAllocatableConfig struct {

@@ -25,6 +25,8 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/cm/memorymanager/state"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
@@ -127,6 +129,8 @@ type testStaticPolicy struct {
 	pod                   *v1.Pod
 	topologyHint          *topologymanager.TopologyHint
 	expectedTopologyHints map[string][]topologymanager.TopologyHint
+	memoryToReuse         map[string]map[v1.ResourceName]state.Block
+	expectedMemoryToReuse map[string]map[v1.ResourceName]state.Block
 }
 
 func initTests(testCase *testStaticPolicy, hint *topologymanager.TopologyHint) (Policy, state.State, error) {
@@ -2336,6 +2340,1329 @@ func TestStaticPolicyGetTopologyHints(t *testing.T) {
 			topologyHints := p.GetTopologyHints(s, testCase.pod, &testCase.pod.Spec.Containers[0])
 			if !reflect.DeepEqual(topologyHints, testCase.expectedTopologyHints) {
 				t.Fatalf("The actual topology hints: '%+v' are different from the expected one: '%+v'", topologyHints, testCase.expectedTopologyHints)
+			}
+		})
+	}
+}
+
+func isMemoryToReuseEqual(mTR1, mTR2 map[string]map[v1.ResourceName]state.Block) bool {
+	for podUID, blocks := range mTR1 {
+		for resourceName, block := range blocks {
+
+			if !reflect.DeepEqual(block, mTR2[podUID][resourceName]) {
+				klog.Infof("memoryToReuse is not equal for pod %+v and resource block %+v and %+v", podUID, block, mTR2[podUID][resourceName])
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func TestReusableMemory(t *testing.T) {
+	testCases := []testStaticPolicy{
+		{
+			description: "generate hints and allocate init container",
+			assignments: state.ContainerMemoryAssignments{},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod": map[string][]state.Block{
+					"initcontainer": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         1 * gb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         1 * gb,
+						},
+					},
+				},
+			},
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           10 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 0,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           10 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+			},
+			expectedMachineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           8 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           9 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 2,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           10 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+			},
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					UID: types.UID("pod"),
+				},
+				Spec: v1.PodSpec{
+					InitContainers: []v1.Container{
+						{
+							Name:      "initcontainer",
+							Resources: *requirementsGuaranteed,
+						},
+					},
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+			},
+			expectedTopologyHints: map[string][]topologymanager.TopologyHint{
+				string(v1.ResourceMemory): {
+					{
+						NUMANodeAffinity: newNUMAAffinity(0),
+						Preferred:        true,
+					},
+					{
+						NUMANodeAffinity: newNUMAAffinity(1),
+						Preferred:        true,
+					},
+					{
+						NUMANodeAffinity: newNUMAAffinity(0, 1),
+						Preferred:        false,
+					},
+				},
+				string(hugepages1Gi): {
+					{
+						NUMANodeAffinity: newNUMAAffinity(0),
+						Preferred:        true,
+					},
+					{
+						NUMANodeAffinity: newNUMAAffinity(1),
+						Preferred:        true,
+					},
+					{
+						NUMANodeAffinity: newNUMAAffinity(0, 1),
+						Preferred:        false,
+					},
+				},
+			},
+			memoryToReuse: map[string]map[v1.ResourceName]state.Block{},
+			expectedMemoryToReuse: map[string]map[v1.ResourceName]state.Block{
+				"pod": {
+					"memory": {
+						NUMAAffinity: []int{0},
+						Type:         v1.ResourceMemory,
+						Size:         1 * gb,
+					},
+					hugepages1Gi: {
+						NUMAAffinity: []int{0},
+						Type:         hugepages1Gi,
+						Size:         1 * gb,
+					},
+				},
+			},
+		},
+		{
+			description: "generate hints and allocate second init container when one was already allocated",
+			assignments: state.ContainerMemoryAssignments{
+				"pod": map[string][]state.Block{
+					"initcontainer1": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         1 * gb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         1 * gb,
+						},
+					},
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod": map[string][]state.Block{
+					"initcontainer1": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         1 * gb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         1 * gb,
+						},
+					},
+					"initcontainer2": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         1 * gb,
+							Reused:       1 * gb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         1 * gb,
+							Reused:       1 * gb,
+						},
+					},
+				},
+			},
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           8 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           9 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 2,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           10 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+			},
+			expectedMachineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           7 * gb,
+							Reserved:       2 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           8 * gb,
+							Reserved:       2 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 4,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           10 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+			},
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					UID: types.UID("pod"),
+				},
+				Spec: v1.PodSpec{
+					InitContainers: []v1.Container{
+						{
+							Name: "initcontainer2",
+							Resources: v1.ResourceRequirements{
+								Limits: v1.ResourceList{
+									v1.ResourceCPU:    resource.MustParse("1000Mi"),
+									v1.ResourceMemory: resource.MustParse("2Gi"),
+									hugepages1Gi:      resource.MustParse("2Gi"),
+								},
+								Requests: v1.ResourceList{
+									v1.ResourceCPU:    resource.MustParse("1000Mi"),
+									v1.ResourceMemory: resource.MustParse("2Gi"),
+									hugepages1Gi:      resource.MustParse("2Gi"),
+								},
+							},
+						},
+					},
+				},
+			},
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+			},
+			expectedTopologyHints: map[string][]topologymanager.TopologyHint{
+				string(v1.ResourceMemory): {
+					{
+						NUMANodeAffinity: newNUMAAffinity(0),
+						Preferred:        true,
+					},
+				},
+				string(hugepages1Gi): {
+					{
+						NUMANodeAffinity: newNUMAAffinity(0),
+						Preferred:        true,
+					},
+				},
+			},
+			memoryToReuse: map[string]map[v1.ResourceName]state.Block{
+				"pod": {
+					"memory": {
+						NUMAAffinity: []int{0},
+						Type:         v1.ResourceMemory,
+						Size:         1 * gb,
+					},
+					hugepages1Gi: {
+						NUMAAffinity: []int{0},
+						Type:         hugepages1Gi,
+						Size:         1 * gb,
+					},
+				},
+			},
+			expectedMemoryToReuse: map[string]map[v1.ResourceName]state.Block{
+				"pod": {
+					"memory": {
+						NUMAAffinity: []int{0},
+						Type:         v1.ResourceMemory,
+						Size:         2 * gb,
+					},
+					hugepages1Gi: {
+						NUMAAffinity: []int{0},
+						Type:         hugepages1Gi,
+						Size:         2 * gb,
+					},
+				},
+			},
+		},
+		{
+			description: "init containers request higher than app containers, should allocate all from reusable",
+			assignments: state.ContainerMemoryAssignments{
+				"pod2": map[string][]state.Block{
+					"initcontainer": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         5 * gb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         5 * gb,
+						},
+					},
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod2": map[string][]state.Block{
+					"initcontainer": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         5 * gb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         5 * gb,
+						},
+					},
+					"container2": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         0,
+							Reused:       1 * gb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         0,
+							Reused:       1 * gb,
+						},
+					},
+				},
+			},
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           4 * gb,
+							Reserved:       5 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           5 * gb,
+							Reserved:       5 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 2,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           10 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+			},
+			expectedMachineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           4 * gb,
+							Reserved:       5 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           5 * gb,
+							Reserved:       5 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 4,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           10 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+			},
+			pod: getPod("pod2", "container2", requirementsGuaranteed),
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+			},
+			expectedTopologyHints: map[string][]topologymanager.TopologyHint{
+				string(v1.ResourceMemory): {
+					{
+						NUMANodeAffinity: newNUMAAffinity(0),
+						Preferred:        true,
+					},
+				},
+				string(hugepages1Gi): {
+					{
+						NUMANodeAffinity: newNUMAAffinity(0),
+						Preferred:        true,
+					},
+				},
+			},
+			memoryToReuse: map[string]map[v1.ResourceName]state.Block{
+				"pod2": {
+					"memory": {
+						NUMAAffinity: []int{0},
+						Type:         v1.ResourceMemory,
+						Size:         5 * gb,
+					},
+					hugepages1Gi: {
+						NUMAAffinity: []int{0},
+						Type:         hugepages1Gi,
+						Size:         5 * gb,
+					},
+				},
+			},
+			expectedMemoryToReuse: map[string]map[v1.ResourceName]state.Block{
+				"pod2": {
+					"memory": {
+						NUMAAffinity: []int{0},
+						Type:         v1.ResourceMemory,
+						Size:         4 * gb,
+					},
+					hugepages1Gi: {
+						NUMAAffinity: []int{0},
+						Type:         hugepages1Gi,
+						Size:         4 * gb,
+					},
+				},
+			},
+		},
+		{
+			description: "app containers request more memory than is reusable, should allocate memory from reusable and from nodemap, hugepages from reusable",
+			assignments: state.ContainerMemoryAssignments{
+				"pod2": map[string][]state.Block{
+					"initcontainer": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         512 * mb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         gb,
+						},
+					},
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod2": map[string][]state.Block{
+					"initcontainer": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         512 * mb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         gb,
+						},
+					},
+					"container2": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         512 * mb,
+							Reused:       512 * mb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         0,
+							Reused:       gb,
+						},
+					},
+				},
+			},
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           8*gb + 512*mb,
+							Reserved:       512 * mb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           9 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 2,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           10 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+			},
+			expectedMachineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           8 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           9 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 4,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           10 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+			},
+			pod: getPod("pod2", "container2", requirementsGuaranteed),
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+			},
+			expectedTopologyHints: map[string][]topologymanager.TopologyHint{
+				string(v1.ResourceMemory): {
+					{
+						NUMANodeAffinity: newNUMAAffinity(0),
+						Preferred:        true,
+					},
+				},
+				string(hugepages1Gi): {
+					{
+						NUMANodeAffinity: newNUMAAffinity(0),
+						Preferred:        true,
+					},
+				},
+			},
+			memoryToReuse: map[string]map[v1.ResourceName]state.Block{
+				"pod2": {
+					"memory": {
+						NUMAAffinity: []int{0},
+						Type:         v1.ResourceMemory,
+						Size:         512 * mb,
+					},
+					hugepages1Gi: {
+						NUMAAffinity: []int{0},
+						Type:         hugepages1Gi,
+						Size:         gb,
+					},
+				},
+			},
+			expectedMemoryToReuse: map[string]map[v1.ResourceName]state.Block{
+				"pod2": {
+					"memory": {
+						NUMAAffinity: []int{0},
+						Type:         v1.ResourceMemory,
+						Size:         0,
+					},
+					hugepages1Gi: {
+						NUMAAffinity: []int{0},
+						Type:         hugepages1Gi,
+						Size:         0,
+					},
+				},
+			},
+		},
+		{
+			description: "app containers request more memory and hugepages than is reusable, should allocate memory from reusable and from nodemap, hugepages from nodemap",
+			assignments: state.ContainerMemoryAssignments{
+				"pod2": map[string][]state.Block{
+					"initcontainer": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         512 * mb,
+						},
+					},
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod2": map[string][]state.Block{
+					"initcontainer": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         512 * mb,
+						},
+					},
+					"container2": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         512 * mb,
+							Reused:       512 * mb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         gb,
+							Reused:       0,
+						},
+					},
+				},
+			},
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           8*gb + 512*mb,
+							Reserved:       512 * mb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           10 * gb,
+							Reserved:       0 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 1,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           10 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+			},
+			expectedMachineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           8 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           9 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 3,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           10 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+			},
+			pod: getPod("pod2", "container2", requirementsGuaranteed),
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+			},
+			expectedTopologyHints: map[string][]topologymanager.TopologyHint{
+				string(v1.ResourceMemory): {
+					{
+						NUMANodeAffinity: newNUMAAffinity(0),
+						Preferred:        true,
+					},
+				},
+				string(hugepages1Gi): {
+					{
+						NUMANodeAffinity: newNUMAAffinity(0),
+						Preferred:        true,
+					},
+				},
+			},
+			memoryToReuse: map[string]map[v1.ResourceName]state.Block{
+				"pod2": {
+					"memory": {
+						NUMAAffinity: []int{0},
+						Type:         v1.ResourceMemory,
+						Size:         512 * mb,
+					},
+				},
+			},
+			expectedMemoryToReuse: map[string]map[v1.ResourceName]state.Block{
+				"pod2": {
+					"memory": {
+						NUMAAffinity: []int{0},
+						Type:         v1.ResourceMemory,
+						Size:         0,
+					},
+				},
+			},
+		},
+		{
+			description: "app containers request memory, init containers requested hugepages",
+			assignments: state.ContainerMemoryAssignments{
+				"pod2": map[string][]state.Block{
+					"initcontainer": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         1 * gb,
+						},
+					},
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod2": map[string][]state.Block{
+					"initcontainer": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         1 * gb,
+						},
+					},
+					"container2": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         gb,
+							Reused:       0,
+						},
+					},
+				},
+			},
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           9 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 1,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           10 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+			},
+			expectedMachineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           8 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           9 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 2,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           10 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+			},
+			pod: getPod("pod2", "container2", &v1.ResourceRequirements{
+				Limits: v1.ResourceList{
+					v1.ResourceCPU:    resource.MustParse("1000Mi"),
+					v1.ResourceMemory: resource.MustParse("1Gi"),
+				},
+				Requests: v1.ResourceList{
+					v1.ResourceCPU:    resource.MustParse("1000Mi"),
+					v1.ResourceMemory: resource.MustParse("1Gi"),
+				},
+			}),
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+			},
+			expectedTopologyHints: map[string][]topologymanager.TopologyHint{
+				string(v1.ResourceMemory): {
+					{
+						NUMANodeAffinity: newNUMAAffinity(0),
+						Preferred:        true,
+					},
+					{
+						NUMANodeAffinity: newNUMAAffinity(1),
+						Preferred:        true,
+					},
+				},
+			},
+			memoryToReuse: map[string]map[v1.ResourceName]state.Block{
+				"pod2": {
+					hugepages1Gi: {
+						NUMAAffinity: []int{0},
+						Type:         hugepages1Gi,
+						Size:         1 * gb,
+					},
+				},
+			},
+			expectedMemoryToReuse: map[string]map[v1.ResourceName]state.Block{
+				"pod2": {
+					hugepages1Gi: {
+						NUMAAffinity: []int{0},
+						Type:         hugepages1Gi,
+						Size:         1 * gb,
+					},
+				},
+			},
+		},
+		{
+			description: "allocate new pod, should clear reusables for existing one",
+			assignments: state.ContainerMemoryAssignments{
+				"pod1": map[string][]state.Block{
+					"initcontainer": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         1 * gb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         1 * gb,
+						},
+					},
+				},
+			},
+			expectedAssignments: state.ContainerMemoryAssignments{
+				"pod1": map[string][]state.Block{
+					"initcontainer": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         1 * gb,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         1 * gb,
+						},
+					},
+				},
+				"pod2": map[string][]state.Block{
+					"container2": {
+						{
+							NUMAAffinity: []int{0},
+							Type:         v1.ResourceMemory,
+							Size:         1 * gb,
+							Reused:       0,
+						},
+						{
+							NUMAAffinity: []int{0},
+							Type:         hugepages1Gi,
+							Size:         1 * gb,
+							Reused:       0,
+						},
+					},
+				},
+			},
+			machineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           8 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           9 * gb,
+							Reserved:       1 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 2,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           10 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+			},
+			expectedMachineState: state.NodeMap{
+				0: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           7 * gb,
+							Reserved:       2 * gb,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           8 * gb,
+							Reserved:       2 * gb,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{0},
+					NumberOfAssignments: 4,
+				},
+				1: &state.NodeState{
+					MemoryMap: map[v1.ResourceName]*state.MemoryTable{
+						v1.ResourceMemory: {
+							Allocatable:    9 * gb,
+							Free:           9 * gb,
+							Reserved:       0,
+							SystemReserved: 1 * gb,
+							TotalMemSize:   10 * gb,
+						},
+						hugepages1Gi: {
+							Allocatable:    10 * gb,
+							Free:           10 * gb,
+							Reserved:       0,
+							SystemReserved: 0,
+							TotalMemSize:   10 * gb,
+						},
+					},
+					Nodes:               []int{1},
+					NumberOfAssignments: 0,
+				},
+			},
+			pod: getPod("pod2", "container2", requirementsGuaranteed),
+			systemReserved: systemReservedMemory{
+				0: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+				1: map[v1.ResourceName]uint64{
+					v1.ResourceMemory: 1 * gb,
+				},
+			},
+			expectedTopologyHints: map[string][]topologymanager.TopologyHint{
+				string(v1.ResourceMemory): {
+					{
+						NUMANodeAffinity: newNUMAAffinity(0),
+						Preferred:        true,
+					},
+					{
+						NUMANodeAffinity: newNUMAAffinity(1),
+						Preferred:        true,
+					},
+				},
+				string(hugepages1Gi): {
+					{
+						NUMANodeAffinity: newNUMAAffinity(0),
+						Preferred:        true,
+					},
+					{
+						NUMANodeAffinity: newNUMAAffinity(1),
+						Preferred:        true,
+					},
+				},
+			},
+			memoryToReuse: map[string]map[v1.ResourceName]state.Block{
+				"pod1": {
+					"memory": {
+						NUMAAffinity: []int{0},
+						Type:         v1.ResourceMemory,
+						Size:         5 * gb,
+					},
+					hugepages1Gi: {
+						NUMAAffinity: []int{0},
+						Type:         hugepages1Gi,
+						Size:         5 * gb,
+					},
+				},
+			},
+			expectedMemoryToReuse: map[string]map[v1.ResourceName]state.Block{},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.description, func(t *testing.T) {
+			p, s, err := initTests(&testCase, nil)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+			p.(*staticPolicy).memoryToReuse = testCase.memoryToReuse
+
+			topologyHints := map[string][]topologymanager.TopologyHint{}
+
+			if len(testCase.pod.Spec.InitContainers) != 0 {
+				topologyHints = p.GetTopologyHints(s, testCase.pod, &testCase.pod.Spec.InitContainers[0])
+			} else {
+				topologyHints = p.GetTopologyHints(s, testCase.pod, &testCase.pod.Spec.Containers[0])
+			}
+
+			if !reflect.DeepEqual(topologyHints, testCase.expectedTopologyHints) {
+				t.Fatalf("The actual topology hints: \n '%+v' \n are different from the expected one: \n '%+v'", topologyHints, testCase.expectedTopologyHints)
+			}
+
+			hint := &topologymanager.TopologyHint{}
+			if _, ok := topologyHints["memory"]; ok && len(topologyHints["memory"]) > 0 {
+				hint = &topologyHints["memory"][0]
+			}
+
+			tm := topologymanager.NewFakeMangerWithHint(hint)
+
+			p.(*staticPolicy).affinity = tm
+			if len(testCase.pod.Spec.InitContainers) != 0 {
+				err = p.Allocate(s, testCase.pod, &testCase.pod.Spec.InitContainers[0])
+			} else {
+				err = p.Allocate(s, testCase.pod, &testCase.pod.Spec.Containers[0])
+			}
+
+			if !reflect.DeepEqual(err, testCase.expectedError) {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			if !areContainerMemoryAssignmentsEqual(s.GetMemoryAssignments(), testCase.expectedAssignments) {
+				t.Fatalf("The assignments: \n '%+v' \n are different from the expected one: \n '%+v'", s.GetMemoryAssignments(), testCase.expectedAssignments)
+			}
+			if !isMemoryToReuseEqual(p.(*staticPolicy).memoryToReuse, testCase.expectedMemoryToReuse) {
+				t.Fatalf("The actual reusable memory: \n '%+v' \n are different from the expected one: \n '%+v'", p.(*staticPolicy).memoryToReuse, testCase.expectedMemoryToReuse)
+			}
+			if !areMachineStatesEqual(s.GetMachineState(), testCase.expectedMachineState) {
+				t.Fatalf("The actual machineState: \n '%+v' \n is different from the expected one: \n '%+v'", s.GetMachineState(), testCase.expectedMachineState)
 			}
 		})
 	}

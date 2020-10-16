@@ -65,7 +65,7 @@ func TestCheckpointStateRestore(t *testing.T) {
 				"policyName":"static",
 				"machineState":{"0":{"numberOfAssignments":0,"memoryMap":{"memory":{"total":2048,"systemReserved":512,"allocatable":1536,"reserved":512,"free":1024}},"nodes":[]}},
 				"entries":{"pod":{"container1":[{"numaAffinity":[0],"type":"memory","size":512}]}},
-				"checksum": 163710462
+				"checksum": 653911231
 			}`,
 			containermap.ContainerMap{},
 			"",

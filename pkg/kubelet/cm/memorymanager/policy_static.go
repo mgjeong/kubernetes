@@ -438,7 +438,20 @@ func (p *staticPolicy) GetTopologyHints(s state.State, pod *v1.Pod, container *v
 		return nil
 	}
 
-	requestedResources, err := getRequestedResources(container)
+	var requestedResources map[v1.ResourceName]uint64
+	var err error
+
+	// Init containers should be placed on NUMA nodes where inheriting container's requirement can be satisfied
+	for _, initContainer := range pod.Spec.InitContainers {
+		if container.Name == initContainer.Name {
+			requestedResources, err = getMaxRequestedResources(pod)
+		}
+	}
+
+	if requestedResources == nil {
+		requestedResources, err = getRequestedResources(container)
+	}
+
 	if err != nil {
 		klog.Error(err.Error())
 		return nil
@@ -473,6 +486,29 @@ func getRequestedResources(container *v1.Container) (map[v1.ResourceName]uint64,
 		requestedResources[resourceName] = uint64(requestedSize)
 	}
 	return requestedResources, nil
+}
+
+func getMaxRequestedResources(pod *v1.Pod) (map[v1.ResourceName]uint64, error) {
+	maxReqRsrcs := make(map[v1.ResourceName]uint64)
+
+	for _, ctr := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
+		reqRsrcs, err := getRequestedResources(&ctr)
+
+		if err != nil {
+			return nil, err
+		}
+		for rsrcName, qty := range reqRsrcs {
+			if _, ok := maxReqRsrcs[rsrcName]; !ok {
+				maxReqRsrcs[rsrcName] = uint64(0)
+			}
+
+			if reqRsrcs[rsrcName] > maxReqRsrcs[rsrcName] {
+				maxReqRsrcs[rsrcName] = qty
+			}
+		}
+	}
+
+	return maxReqRsrcs, nil
 }
 
 func (p *staticPolicy) calculateHints(s state.State, requestedResources map[v1.ResourceName]uint64, reusable map[v1.ResourceName]state.Block) map[string][]topologymanager.TopologyHint {

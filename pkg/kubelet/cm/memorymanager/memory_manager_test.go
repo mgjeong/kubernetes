@@ -133,7 +133,8 @@ func (psp mockPodStatusProvider) GetPodStatus(uid types.UID) (v1.PodStatus, bool
 func getPod(podUID string, containerName string, requirements *v1.ResourceRequirements) *v1.Pod {
 	return &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			UID: types.UID(podUID),
+			UID:  types.UID(podUID),
+			Name: podUID,
 		},
 		Spec: v1.PodSpec{
 			Containers: []v1.Container{

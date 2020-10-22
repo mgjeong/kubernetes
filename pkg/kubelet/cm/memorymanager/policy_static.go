@@ -143,9 +143,6 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 
 	klog.Infof("[memorymanager] Allocate (pod: %s, container: %s)", pod.Name, container.Name)
 	if blocks := s.GetMemoryBlocks(string(pod.UID), container.Name); blocks != nil {
-		if err := p.updateMemoryToReuse(pod, container, blocks); err != nil {
-			return err
-		}
 		klog.Infof("[memorymanager] Container already present in state, skipping (pod: %s, container: %s)", pod.Name, container.Name)
 		return nil
 	}
@@ -337,7 +334,7 @@ func regenerateHints(pod *v1.Pod, ctn *v1.Container, ctnBlocks []state.Block, re
 			return nil
 		}
 
-		if b.Size != reqRsrc[b.Type] {
+		if b.Size+b.Reused != reqRsrc[b.Type] {
 			klog.Errorf("[memorymanager] Memory %s already allocated to (pod %v, container %v) with different number than request: requested: %d, allocated: %d", b.Type, pod.UID, ctn.Name, reqRsrc[b.Type], b.Size)
 			return nil
 		}

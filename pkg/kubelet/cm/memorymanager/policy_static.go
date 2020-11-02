@@ -31,6 +31,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/cm/memorymanager/state"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
+	"k8s.io/kubernetes/pkg/kubelet/util/format"
 )
 
 const policyTypeStatic policyType = "static"
@@ -90,15 +91,15 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 		return nil
 	}
 
-	klog.Infof("[memorymanager] Allocate (pod: %s, container: %s)", pod.Name, container.Name)
+	klog.Infof("[memorymanager] Allocate (pod: %s, container: %s)", format.Pod(pod), container.Name)
 	if blocks := s.GetMemoryBlocks(string(pod.UID), container.Name); blocks != nil {
-		klog.Infof("[memorymanager] Container already present in state, skipping (pod: %s, container: %s)", pod.Name, container.Name)
+		klog.Infof("[memorymanager] Container already present in state, skipping (pod: %s, container: %s)", format.Pod(pod), container.Name)
 		return nil
 	}
 
 	// Call Topology Manager to get the aligned affinity across all hint providers.
 	hint := p.affinity.GetAffinity(string(pod.UID), container.Name)
-	klog.Infof("[memorymanager] Pod %v, Container %v Topology Affinity is: %v", pod.UID, container.Name, hint)
+	klog.Infof("[memorymanager] Pod %v, Container %v Topology Affinity is: %v", format.Pod(pod), container.Name, hint)
 
 	requestedResources, err := getRequestedResources(container)
 	if err != nil {
@@ -256,7 +257,7 @@ func regenerateHints(pod *v1.Pod, ctn *v1.Container, ctnBlocks []state.Block, re
 		}
 
 		if b.Size != reqRsrc[b.Type] {
-			klog.Errorf("[memorymanager] Memory %s already allocated to (pod %v, container %v) with different number than request: requested: %d, allocated: %d", b.Type, pod.UID, ctn.Name, reqRsrc[b.Type], b.Size)
+			klog.Errorf("[memorymanager] Memory %s already allocated to (pod %v, container %v) with different number than request: requested: %d, allocated: %d", b.Type, format.Pod(pod), ctn.Name, reqRsrc[b.Type], b.Size)
 			return nil
 		}
 
@@ -266,7 +267,7 @@ func regenerateHints(pod *v1.Pod, ctn *v1.Container, ctnBlocks []state.Block, re
 			return nil
 		}
 
-		klog.Infof("[memorymanager] Regenerating TopologyHints, %s was already allocated to (pod %v, container %v)", b.Type, pod.UID, ctn.Name)
+		klog.Infof("[memorymanager] Regenerating TopologyHints, %s was already allocated to (pod %v, container %v)", b.Type, format.Pod(pod), ctn.Name)
 		hints[string(b.Type)] = append(hints[string(b.Type)], topologymanager.TopologyHint{
 			NUMANodeAffinity: containerNUMAAffinity,
 			Preferred:        true,

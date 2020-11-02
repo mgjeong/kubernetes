@@ -19,7 +19,7 @@ package fuzzer
 import (
 	"time"
 
-	"github.com/google/gofuzz"
+	fuzz "github.com/google/gofuzz"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtimeserializer "k8s.io/apimachinery/pkg/runtime/serializer"
@@ -62,6 +62,7 @@ func Funcs(codecs runtimeserializer.CodecFactory) []interface{} {
 			obj.KernelMemcgNotification = false
 			obj.MaxOpenFiles = 1000000
 			obj.MaxPods = 110
+			obj.MemoryManagerPolicy = "none"
 			obj.PodPidsLimit = -1
 			obj.NodeStatusUpdateFrequency = metav1.Duration{Duration: 10 * time.Second}
 			obj.NodeStatusReportFrequency = metav1.Duration{Duration: time.Minute}

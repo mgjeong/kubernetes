@@ -24,6 +24,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
 	"k8s.io/kubernetes/pkg/kubelet/config"
 	"k8s.io/kubernetes/pkg/kubelet/status"
+	"k8s.io/kubernetes/pkg/kubelet/util/format"
 )
 
 type fakeManager struct {
@@ -41,12 +42,12 @@ func (m *fakeManager) Policy() Policy {
 }
 
 func (m *fakeManager) Allocate(pod *v1.Pod, container *v1.Container) error {
-	klog.Infof("[fake memorymanager] Allocate (pod: %s, container: %s", pod.Name, container.Name)
+	klog.Infof("[fake memorymanager] Allocate (pod: %s, container: %s", format.Pod(pod), container.Name)
 	return nil
 }
 
 func (m *fakeManager) AddContainer(pod *v1.Pod, container *v1.Container, containerID string) error {
-	klog.Infof("[fake memorymanager] AddContainer (pod: %s, container: %s, container id: %s)", pod.Name, container.Name, containerID)
+	klog.Infof("[fake memorymanager] AddContainer (pod: %s, container: %s, container id: %s)", format.Pod(pod), container.Name, containerID)
 	return nil
 }
 

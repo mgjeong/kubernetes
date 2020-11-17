@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -112,6 +111,3 @@ type ResolvedPodUID types.UID
 
 // A pod UID for a mirror pod.
 type MirrorPodUID types.UID
-
-// NUMANodeResources is a set of (resource name, quantity) pairs for each NUMA node.
-type NUMANodeResources map[int]map[v1.ResourceName]resource.Quantity

@@ -838,14 +838,14 @@ type KubeletConfiguration struct {
 	// Default: "10s"
 	// +optional
 	ShutdownGracePeriodCriticalPods metav1.Duration `json:"shutdownGracePeriodCriticalPods,omitempty"`
-	// A comma separated list of bracket-enclosed configurations for memory manager.
-	// Each configuration describes pre-reserved memory for the certain memory type on a specific NUMA node.
-	// The Memory Manager validates whether total amount of pre-reserved memory is identical to reserved-memory by the Node Allocatable feature.
-	// The format is {numa-node=integer, memory-type=string, limit=string}
-	// (e.g. {numa-node=0, type=memory, limit=1Gi}, {numa-node=1, type=memory, limit=1Gi})
+	// Reserved Memory specifies a comma separated list of memory reservations for NUMA nodes.
+	// Each configuration describes the reserved memory for desired memory types on a specific NUMA node.
+	// The Memory Manager validates whether total amount of reserved memory is identical to memory reserved by the Node Allocatable feature.
+	// The format is [{"numaNode": integer, "limits": {"type": "limit"}}, {"numaNode": integer, "limits": {"type": "limit"}}, ...]
+	// (e.g. [{"numaNode":integer, "limits":{"memory": "512Mi", "hugepages-2Mi": "512Mi"}}]
 	// Default: nil
 	// +optional
-	ReservedMemory []map[string]string `json:"reservedMemory,omitempty"`
+	ReservedMemory []MemoryReservation `json:"reservedMemory,omitempty"`
 }
 
 type KubeletAuthorizationMode string
@@ -925,4 +925,10 @@ type SerializedNodeConfigSource struct {
 	// Source is the source that we are serializing
 	// +optional
 	Source v1.NodeConfigSource `json:"source,omitempty" protobuf:"bytes,1,opt,name=source"`
+}
+
+// MemoryReservation specifies the memory reservation of different types for each NUMA node
+type MemoryReservation struct {
+	NumaNode int32           `json:"numaNode"`
+	Limits   v1.ResourceList `json:"limits"`
 }

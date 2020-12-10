@@ -45,9 +45,13 @@ func (m *fakeManager) Allocate(pod *v1.Pod, container *v1.Container) error {
 	return nil
 }
 
-func (m *fakeManager) AddContainer(pod *v1.Pod, container *v1.Container, containerID string) error {
+func (m *fakeManager) AddContainer(pod *v1.Pod, container *v1.Container, containerID string) {
 	klog.Infof("[fake cpumanager] AddContainer (pod: %s, container: %s, container id: %s)", pod.Name, container.Name, containerID)
-	return nil
+}
+
+func (m *fakeManager) GetAllocatedResources(pod *v1.Pod, container *v1.Container) string {
+	klog.Infof("[fake cpumanager] GetAllocatedResources (pod: %s, container: %s)", pod.Name, container.Name)
+	return ""
 }
 
 func (m *fakeManager) RemoveContainer(containerID string) error {

@@ -60,11 +60,14 @@ type Manager interface {
 	// AddContainer is called between container create and container start
 	// so that initial memory affinity settings can be written through to the
 	// container runtime before the first process begins to execute.
-	AddContainer(p *v1.Pod, c *v1.Container, containerID string) error
+	AddContainer(p *v1.Pod, c *v1.Container, containerID string)
 
 	// Allocate is called to pre-allocate memory resources during Pod admission.
 	// This must be called at some point prior to the AddContainer() call for a container, e.g. at pod admission time.
 	Allocate(pod *v1.Pod, container *v1.Container) error
+
+	// GetAllocatedResources return the memory affinity for the container
+	GetAllocatedResources(pod *v1.Pod, container *v1.Container) string
 
 	// RemoveContainer is called after Kubelet decides to kill or delete a
 	// container. After this call, any memory allocated to the container is freed.
@@ -175,12 +178,8 @@ func (m *manager) Start(activePods ActivePodsFunc, sourcesReady config.SourcesRe
 	return nil
 }
 
-// AddContainer saves the value of requested memory for the guaranteed pod under the state and set memory affinity according to the topolgy manager
-func (m *manager) AddContainer(pod *v1.Pod, container *v1.Container, containerID string) error {
-	m.Lock()
-	m.containerMap.Add(string(pod.UID), container.Name, containerID)
-	m.Unlock()
-
+// GetAllocatedResources returns the container memory affinity
+func (m *manager) GetAllocatedResources(pod *v1.Pod, container *v1.Container) string {
 	// Get NUMA node affinity of blocks assigned to the container during Allocate()
 	var nodes []string
 	for _, block := range m.state.GetMemoryBlocks(string(pod.UID), container.Name) {
@@ -190,24 +189,20 @@ func (m *manager) AddContainer(pod *v1.Pod, container *v1.Container, containerID
 	}
 
 	if len(nodes) < 1 {
-		klog.V(5).Infof("[memorymanager] update container resources is skipped due to memory blocks are empty")
-		return nil
+		klog.V(5).Infof("[memorymanager] no allocation is available for the (Pod: %s, Container: %s)", pod.Name, container.Name)
+		return ""
 	}
 
 	affinity := strings.Join(nodes, ",")
-	klog.Infof("[memorymanager] Set container %q cpuset.mems to %q", containerID, affinity)
-	err := m.containerRuntime.UpdateContainerResources(containerID, &runtimeapi.LinuxContainerResources{CpusetMems: affinity})
-	if err != nil {
-		klog.Errorf("[memorymanager] AddContainer error: error updating cpuset.mems for container (pod: %s, container: %s, container id: %s, err: %v)", pod.Name, container.Name, containerID, err)
+	klog.Infof("[memorymanager] (Pod: %s, Container: %s) memory affinity %s", pod.Name, container.Name, affinity)
+	return affinity
+}
 
-		m.Lock()
-		err = m.policyRemoveContainerByRef(string(pod.UID), container.Name)
-		if err != nil {
-			klog.Errorf("[memorymanager] AddContainer rollback state error: %v", err)
-		}
-		m.Unlock()
-	}
-	return err
+// AddContainer saves the value of requested memory for the guaranteed pod under the state and set memory affinity according to the topolgy manager
+func (m *manager) AddContainer(pod *v1.Pod, container *v1.Container, containerID string) {
+	m.Lock()
+	defer m.Unlock()
+	m.containerMap.Add(string(pod.UID), container.Name, containerID)
 }
 
 // Allocate is called to pre-allocate memory resources during Pod admission.

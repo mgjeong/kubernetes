@@ -167,6 +167,7 @@ func (m *kubeGenericRuntimeManager) startContainer(podSandboxID string, podSandb
 		return s.Message(), ErrCreateContainerConfig
 	}
 
+	m.internalLifecycle.PreCreateContainer(pod, container, containerConfig)
 	containerID, err := m.runtimeService.CreateContainer(podSandboxID, containerConfig, podSandboxConfig)
 	if err != nil {
 		s, _ := grpcstatus.FromError(err)
